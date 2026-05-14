@@ -22,14 +22,14 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
 
-    # CV & Packing
-    # Избегаем префикса model_, так как Pydantic его резервирует
+    #CV
     cv_model_ir_path: str = "ir_model/ir_metric_hypersim_vitb"
     cv_model_size: str = "vitb"
     cv_scene_type: str = "indoor"
     cv_multi_scale: bool = True
     cv_max_depth_m: float = 10.0
-
+    
+    #Настройка маркёра
     aruco_marker_size_mm: float = 50.0
     verify_threshold_pct: float = 10.0
     pack_time_limit_sec: int = 30
@@ -37,7 +37,9 @@ class Settings(BaseSettings):
 
     # Uploads
     max_upload_size_mb: int = 10
-    # Убрали List[str], Pydantic сам спарсит строку, если есть валидатор ниже
+
+    upload_dir: str = "/app/uploads"
+    max_upload_size_mb: int = 10
     allowed_image_types: List[str] = ["image/jpeg", "image/png"]
     min_image_width: int = 640
     min_image_height: int = 480

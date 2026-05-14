@@ -4,22 +4,12 @@
 import enum
 from sqlalchemy import (
     Column, Integer, Float, Boolean, Text, DateTime,
-    ForeignKey, Index, Enum as SAEnum  # ← Ключевое: Enum как SQLEnum
+    ForeignKey, Index, Enum as SQLEnum
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..base import Base
-
-
-
-class MeasurementStatus(enum.Enum):
-    """Статусы обработки измерения."""
-    PENDING = "pending"           # Запись создана, задача в очереди
-    PROCESSING = "processing"     # Идёт обработка в Celery
-    COMPLETED = "completed"       # Успешное завершение
-    FAILED = "failed"             # Ошибка обработки
-    # Требует ручной проверки (низкий confidence)
-    NEEDS_REVIEW = "needs_review"
+from app.db.enums import MeasurementStatus
 
 
 class Measurement(Base):
@@ -59,9 +49,8 @@ class Measurement(Base):
         "PackingItem", back_populates="measurement", lazy="select")
 
     status = Column(
-        SAEnum('pending', 'processing', 'done',
-               'error', name='measurement_status_enum'),
+        SQLEnum(MeasurementStatus),
         nullable=False,
-        server_default='pending',
-        index=True  # для ускорения запросов
+        default=MeasurementStatus.PENDING,
+        server_default=MeasurementStatus.PENDING.value
     )

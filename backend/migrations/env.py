@@ -1,24 +1,37 @@
-from app.db.models import Base
-from app.core.config import settings
-import asyncio
-from logging.config import fileConfig
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
-
+# backend/migrations/env.py
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))  # Добавляем backend в путь
 
+# Гарантируем, что корень проекта в PYTHONPATH
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
+import asyncio
+import os
+
+# Импорт настроек ПОСЛЕ добавления пути
+from app.core.config import settings  # ← Ваш конфиг с pydantic-settings
+from app.db.base import Base
 
 target_metadata = Base.metadata
+
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# ПРИОРИТЕТ: явно переписываем URL из настроек приложения
+# Это гарантированно использует сервисное имя 'postgres' из docker-compose
+if hasattr(settings, 'database_url') and settings.database_url:
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+elif os.getenv("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL"))
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
 
+
+def process_revision_directives(context, revision, directives):
+    if directives[0].rev_id is None:
+        import uuid
+        directives[0].rev_id = uuid.uuid4().hex
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")

@@ -10,7 +10,7 @@ ENV_FILE = BASE_DIR / ".env"
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql+asyncpg://app_user:dev_password@localhost:5432/warehouse_db"
+    database_url: str = "postgresql+asyncpg://app_user:dev_password@postgres:5432/warehouse_db"
 
     # JWT
     jwt_secret_key: str = "dev-secret-key-change-in-prod"

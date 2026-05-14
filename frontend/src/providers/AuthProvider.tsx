@@ -1,17 +1,13 @@
-/**
- * Провайдер аутентификации.
- * Работает с httpOnly-куками: не хранит токен в JS, проверяет сессию через /auth/me.
- */
-"use client";
+'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 
 export interface User {
   id: number;
   login: string;
-  role: "worker" | "admin";
+  role: 'admin' | 'worker';
 }
 
 interface AuthContextType {
@@ -19,82 +15,88 @@ interface AuthContextType {
   loading: boolean;
   login: (login: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  checkSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const checkSession = useCallback(async () => {
+  // Проверка сессии при монтировании провайдера
+  useEffect(() => {
+    checkSession();
+  }, []);
+
+  const login = async (loginValue: string, passwordValue: string) => {
+  try {
+    // Отправляем JSON, как ожидает LoginRequest
+    await api.post('/auth/login', {
+      login: loginValue,      // ← поле 'login', не 'username'
+      password: passwordValue
+    });
+    
+    await checkSession();
+    if (user) {
+      router.push('/');
+    }
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'response' in err) {
+      const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (error.response?.status === 401) {
+        throw new Error('Неверный логин или пароль');
+      }
+    }
+    throw err;
+  }
+};
+
+  const logout = async () => {
     try {
-      const { data } = await api.get<User>("/auth/me");
+      await api.post('/auth/logout');  // ← Тоже без /api
+    } catch {
+      // Игнорируем ошибки
+    } finally {
+      setUser(null);
+      router.push('/login');
+    }
+  };
+
+  const checkSession = async () => {
+    try {
+      const { data } = await api.get<User>('/auth/me');  // ← Тоже без /api
       setUser(data);
     } catch {
       setUser(null);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    // Не проверять сессию на странице логина
-    if (typeof window !== "undefined" && window.location.pathname === "/login") {
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const initAuth = async () => {
-      await checkSession();
-      if (!cancelled) setLoading(false);
+    const value: AuthContextType = {
+      user,
+      loading,
+      login,
+      logout,
+      checkSession
     };
 
-    initAuth();
-    return () => { cancelled = true; };
-  }, [checkSession]);
-
-  const login = async (login: string, password: string) => {
-    try {
-      await api.post("/auth/login", { login, password });
-      await checkSession();
-      // Полная перезагрузка гарантирует отправку куки в следующем запросе
-      if (typeof window !== "undefined") {
-        window.location.href = "/";
-      }
-    } catch (err: any) {
-      // Fallback: если кука не сработала, пробуем клиентский редирект
-      if (typeof window !== "undefined") {
-        await checkSession();
-        if (user) {
-          router.push("/");
-        }
-      }
-      throw err;
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await api.post("/auth/logout");
-    } finally {
-      setUser(null);
-      router.push("/login");
-    }
-  };
-
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export function useAuth() {
+// Хук для использования контекста
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 }

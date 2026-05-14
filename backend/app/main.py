@@ -14,11 +14,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(packing.router, prefix="/api/v1", tags=["Packing"])
-app.include_router(tasks.router, prefix="/api/v1", tags=["Tasks"])
-app.include_router(auth.router)
+
+
+app.include_router(auth.router, tags=["Auth"])  
 app.include_router(products.router)
 app.include_router(measurement.router, prefix="/api/v1", tags=["Measurements"])
+app.include_router(packing.router, prefix="/api/v1", tags=["Packing"])
+app.include_router(tasks.router, prefix="/api/v1", tags=["Tasks"])
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}

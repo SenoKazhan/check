@@ -33,7 +33,7 @@ services:
   backend:
     build: ./backend
     container_name: diploma-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
@@ -78,7 +78,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
     stdin_open: true

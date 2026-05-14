@@ -1,12 +1,17 @@
 """
 Celery-задачи для конвейера компьютерного зрения.
-Реализует статусную модель: PENDING → PROCESSING → COMPLETED/FAILED
+Реализует статусную модель: PENDING → PROCESSING → COMPLETED/FAILED/NEEDS_REVIEW
+
+Все DB-операции выполняются синхронно через psycopg2, так как Celery-воркеры
+не имеют event loop по умолчанию.
 """
 import logging
 import cv2
 import numpy as np
 from pathlib import Path
-import psycopg2  # Синхронный драйвер для использования в Celery-воркере
+import psycopg2
+from typing import Optional
+
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.cv.optimized_wrapper import DepthAnythingV2OpenVINO
@@ -15,10 +20,11 @@ from app.db.models.measurement import MeasurementStatus
 
 logger = logging.getLogger(__name__)
 
-_model_cache = {}
+# Глобальный кэш модели для повторного использования в воркере
+_model_cache: dict[str, DepthAnythingV2OpenVINO] = {}
 
-def get_depth_model():
-    """Ленивая загрузка модели с кэшированием."""
+def get_depth_model() -> DepthAnythingV2OpenVINO:
+    """Ленивая загрузка модели с кэшированием в памяти воркера."""
     if "metric" not in _model_cache:
         logger.info("Loading Depth Anything V2 Metric model...")
         _model_cache["metric"] = DepthAnythingV2OpenVINO(
@@ -31,19 +37,17 @@ def get_depth_model():
     return _model_cache["metric"]
 
 
-def _update_status_sync(measurement_id: int, status: MeasurementStatus) -> bool:
-    """
-    Синхронный хелпер для обновления статуса из Celery-воркера.
-    
-    Почему sync? Celery-воркеры работают в отдельных процессах,
-    и использование asyncpg требует event loop, который в Celery
-    по умолчанию не инициализирован.
-    """
-    # Конвертируем asyncpg URL в psycopg2 формат
+def _get_sync_db_connection():
+    """Создаёт синхронное подключение к БД для использования в Celery."""
     db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    return psycopg2.connect(db_url)
+
+
+def _update_status_sync(measurement_id: int, status: MeasurementStatus) -> bool:
+    """Обновляет статус измерения в БД (синхронно)."""
     conn = None
     try:
-        conn = psycopg2.connect(db_url)
+        conn = _get_sync_db_connection()
         cur = conn.cursor()
         cur.execute(
             "UPDATE measurements SET status = %s WHERE id = %s",
@@ -53,7 +57,7 @@ def _update_status_sync(measurement_id: int, status: MeasurementStatus) -> bool:
         logger.info(f"✓ Measurement #{measurement_id}: status → {status.value}")
         return True
     except Exception as e:
-        logger.error(f"✗ Failed to update status #{measurement_id}: {e}")
+        logger.error(f"✗ Failed to update status #{measurement_id}: {e}", exc_info=True)
         if conn:
             conn.rollback()
         return False
@@ -64,14 +68,13 @@ def _update_status_sync(measurement_id: int, status: MeasurementStatus) -> bool:
 
 def _create_measurement_record(
     user_id: int, 
-    product_id: int | None,
+    product_id: Optional[int],
     initial_dims: tuple[float, float, float] = (0.0, 0.0, 0.0)
 ) -> int:
-    """Создаёт запись измерения со статусом PENDING."""
-    db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    """Создаёт запись измерения со статусом PENDING и возвращает её ID."""
     conn = None
     try:
-        conn = psycopg2.connect(db_url)
+        conn = _get_sync_db_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO measurements 
@@ -82,7 +85,7 @@ def _create_measurement_record(
         """, (
             user_id, 
             product_id, 
-            *initial_dims,  # Распаковка (l, w, h)
+            *initial_dims,
             MeasurementStatus.PENDING.value,
             None, None, None
         ))
@@ -91,7 +94,7 @@ def _create_measurement_record(
         logger.info(f"✓ Created measurement record #{measurement_id}")
         return measurement_id
     except Exception as e:
-        logger.error(f"✗ Failed to create measurement record: {e}")
+        logger.error(f"✗ Failed to create measurement record: {e}", exc_info=True)
         if conn:
             conn.rollback()
         raise
@@ -105,25 +108,26 @@ def _update_measurement_results(
     length_mm: float,
     width_mm: float, 
     height_mm: float,
-    status: MeasurementStatus = MeasurementStatus.COMPLETED
+    status: MeasurementStatus = MeasurementStatus.COMPLETED,
+    delta_pct: Optional[float] = None,
+    verified_ok: Optional[bool] = None
 ) -> bool:
-    """Обновляет результаты измерения и статус."""
-    db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    """Обновляет результаты измерения и финальный статус."""
     conn = None
     try:
-        conn = psycopg2.connect(db_url)
+        conn = _get_sync_db_connection()
         cur = conn.cursor()
         cur.execute("""
             UPDATE measurements 
             SET length_mm = %s, width_mm = %s, height_mm = %s, 
-                status = %s, measured_at = NOW()
+                status = %s, delta_pct = %s, verified_ok = %s, measured_at = NOW()
             WHERE id = %s
-        """, (length_mm, width_mm, height_mm, status.value, measurement_id))
+        """, (length_mm, width_mm, height_mm, status.value, delta_pct, verified_ok, measurement_id))
         conn.commit()
         logger.info(f"✓ Updated measurement #{measurement_id}: {status.value}")
         return True
     except Exception as e:
-        logger.error(f"✗ Failed to update measurement #{measurement_id}: {e}")
+        logger.error(f"✗ Failed to update measurement #{measurement_id}: {e}", exc_info=True)
         if conn:
             conn.rollback()
         return False
@@ -132,24 +136,35 @@ def _update_measurement_results(
             conn.close()
 
 
+def _cleanup_temp_files(file_paths: list[str]) -> None:
+    """Удаляет временные файлы после обработки."""
+    for path in file_paths:
+        if path and Path(path).exists():
+            try:
+                Path(path).unlink()
+                logger.debug(f"Cleaned up temp file: {path}")
+            except OSError as e:
+                logger.warning(f"Failed to cleanup {path}: {e}")
+
+
 @celery_app.task(bind=True, max_retries=1)
 def process_measurement_task(
     self, 
     image_paths: list[str], 
     marker_size_mm: float, 
     user_id: int, 
-    product_id: int = None,
-    confidence_threshold: float = 0.4
+    product_id: Optional[int] = None,
+    confidence_threshold: float = 0.4  # ← Добавлен параметр с дефолтом
 ):
     """
     Основная задача обработки измерений.
     
     Статусная машина:
-    1. CREATE → PENDING (перед началом обработки)
-    2. UPDATE → PROCESSING (начало CV-пайплайна)
-    3. UPDATE → COMPLETED (успех) или FAILED (ошибка) или NEEDS_REVIEW (низкий confidence)
+    1. Создаётся запись со статусом PENDING
+    2. Обновляется на PROCESSING при старте CV-пайплайна
+    3. Финальный статус: COMPLETED / FAILED / NEEDS_REVIEW
     """
-    measurement_id = None
+    measurement_id: Optional[int] = None
     
     try:
         # === Валидация входных данных ===
@@ -160,7 +175,7 @@ def process_measurement_task(
         measurement_id = _create_measurement_record(
             user_id=user_id,
             product_id=product_id,
-            initial_dims=(0.0, 0.0, 0.0)  # Плейсхолдеры до расчёта
+            initial_dims=(0.0, 0.0, 0.0)
         )
 
         # === Шаг 2: Обновляем статус на PROCESSING ===
@@ -169,8 +184,8 @@ def process_measurement_task(
         # === Шаг 3: Запускаем CV-пайплайн ===
         model = get_depth_model()
         views = ["front", "side", "top"]
-        results = {}
-        confidences = []  # Для оценки надёжности результата
+        results: dict[str, dict] = {}
+        confidences: list[float] = []
 
         for view_name, img_path in zip(views, image_paths):
             logger.info(f"Processing view: {view_name}")
@@ -215,12 +230,24 @@ def process_measurement_task(
         
         # Оценка надёжности: средняя уверенность по всем ракурсам
         avg_confidence = np.mean(confidences) if confidences else 0.0
+        
+        # Расчёт отклонения между ракурсами (для verified_ok)
+        h_front = results["front"]["height_mm"]
+        h_side = results["side"]["height_mm"]
+        delta_pct = abs(h_front - h_side) / min(h_front, h_side) * 100 if h_front and h_side else None
+        verified_ok = delta_pct <= settings.verify_threshold_pct if delta_pct is not None else None
 
         # === Шаг 5: Определение финального статуса ===
         if avg_confidence < confidence_threshold:
             final_status = MeasurementStatus.NEEDS_REVIEW
             logger.warning(
                 f"Low confidence ({avg_confidence:.2f} < {confidence_threshold}): "
+                f"measurement #{measurement_id} marked for review"
+            )
+        elif verified_ok is False:
+            final_status = MeasurementStatus.NEEDS_REVIEW
+            logger.warning(
+                f"High cross-view deviation ({delta_pct:.1f}%): "
                 f"measurement #{measurement_id} marked for review"
             )
         else:
@@ -232,7 +259,9 @@ def process_measurement_task(
             length_mm=final_length,
             width_mm=final_width,
             height_mm=final_height,
-            status=final_status
+            status=final_status,
+            delta_pct=delta_pct,
+            verified_ok=verified_ok
         )
 
         return {
@@ -256,22 +285,7 @@ def process_measurement_task(
         
         # Повторная попытка через 5 секунд (макс. 1 повтор)
         raise self.retry(exc=exc, countdown=5)
-    
-# app/tasks/cv_pipeline.py
-from app.db.sync_session import get_sync_session
-from app.db.models import Measurement
-
-def save_measurement_sync(user_id: int, product_id: int | None, 
-                         length_mm: float, width_mm: float, height_mm: float) -> int:
-    with get_sync_session() as session:
-        measurement = Measurement(
-            user_id=user_id,
-            product_id=product_id,
-            length_mm=length_mm,
-            width_mm=width_mm,
-            height_mm=height_mm,
-            status="completed"  # ← если добавили поле status
-        )
-        session.add(measurement)
-        session.commit()
-        return measurement.id
+        
+    finally:
+        # Гарантированная очистка временных файлов
+        _cleanup_temp_files(image_paths)

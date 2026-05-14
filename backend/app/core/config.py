@@ -35,9 +35,6 @@ class Settings(BaseSettings):
     pack_time_limit_sec: int = 30
     pack_n_variants: int = 3
 
-    # Uploads
-    max_upload_size_mb: int = 10
-
     upload_dir: str = "/app/uploads"
     max_upload_size_mb: int = 10
     allowed_image_types: List[str] = ["image/jpeg", "image/png"]
@@ -63,11 +60,10 @@ class Settings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     model_config = SettingsConfigDict(
-        env_file=str(ENV_FILE) if ENV_FILE.exists() else None,
+        env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
         case_sensitive=False,
-        # Игнорируем конфликт префикса model_
+        extra="ignore",
         protected_namespaces=("settings_",)
     )
 

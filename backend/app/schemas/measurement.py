@@ -6,14 +6,22 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
+from enum import Enum
+from pydantic import BaseModel, Field
 
+class MeasurementStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    ERROR = "error"
+    
 class MeasureResult(BaseModel):
     """Результат CV-измерения габаритов."""
     length_mm: float = Field(..., gt=0, description="Длина в мм")
     width_mm: float = Field(..., gt=0, description="Ширина в мм")
     height_mm: float = Field(..., gt=0, description="Высота в мм")
     confidence: float = Field(..., ge=0, le=1, description="Показатель однородности карты глубины")
-
+    status: MeasurementStatus = Field(default=MeasurementStatus.PENDING)
 
 class VerifyResult(BaseModel):
     """Результат верификации измерения."""

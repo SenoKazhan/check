@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
-from app.db.enums import MeasurementStatus  # ← если у вас есть enum
+from app.db.enums import MeasurementStatus
 from celery.result import AsyncResult
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
@@ -187,6 +187,20 @@ async def get_measurement(
         raise HTTPException(404, "Измерение не найдено")
     return measurement
 
+@router.get("/{measurement_id}/status")
+async def get_measurement_status(
+    measurement_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Measurement.status).where(Measurement.id == measurement_id)
+    )
+    status = result.scalar_one_or_none()
+    
+    if not status:
+        raise HTTPException(404, detail="Измерение не найдено")
+    
+    return {"measurement_id": measurement_id, "status": status}
 
 @router.get("/user/{user_id}")
 async def get_user_measurements(

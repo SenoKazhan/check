@@ -4,12 +4,13 @@
 """
 import enum
 
-
 class MeasurementStatus(str, enum.Enum):
-    """Статусы измерения габаритов."""
-    PENDING = "pending"    # Задача в очереди / обрабатывается
-    DONE = "done"          # Успешно завершено
-    ERROR = "error"        # Ошибка при обработке
+    """Статусы обработки измерения."""
+    PENDING = "pending"           # Запись создана, задача в очереди
+    PROCESSING = "processing"     # Идёт обработка в Celery
+    COMPLETED = "completed"       # Успешное завершение
+    FAILED = "failed"             # Ошибка обработки
+    NEEDS_REVIEW = "needs_review" # Требует проверки
 
 
 class SessionStatus(str, enum.Enum):

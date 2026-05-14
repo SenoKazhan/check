@@ -4,7 +4,7 @@
 import enum
 from sqlalchemy import (
     Column, Integer, Float, Boolean, Text, DateTime,
-    ForeignKey, Index, Enum as SQLEnum
+    ForeignKey, Index, Enum as SAEnum
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -49,8 +49,10 @@ class Measurement(Base):
         "PackingItem", back_populates="measurement", lazy="select")
 
     status = Column(
-        SQLEnum(MeasurementStatus),
+        SAEnum(MeasurementStatus, name='measurement_status_enum'),  
         nullable=False,
-        default=MeasurementStatus.PENDING,
-        server_default=MeasurementStatus.PENDING.value
+        server_default=MeasurementStatus.PENDING.value,
+        index=True
     )
+
+

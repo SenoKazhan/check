@@ -1,7 +1,17 @@
-from typing import Optional
+"""
+Модель товара (справочник).
+"""
+from typing import Optional, List, TYPE_CHECKING
+
 from sqlalchemy import Float, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.base import Base
+
+# Импортируем Measurement только для проверки типов, чтобы избежать циклического импорта
+if TYPE_CHECKING:
+    from app.db.models.measurement import Measurement
+
 
 class Product(Base):
     __tablename__ = "products"
@@ -13,3 +23,10 @@ class Product(Base):
     ref_width_mm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     ref_height_mm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    measurements: Mapped[List["Measurement"]] = relationship(
+        "Measurement",
+        back_populates="product",
+        lazy="select",
+        cascade="all, delete-orphan"
+    )

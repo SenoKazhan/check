@@ -6,7 +6,7 @@ from typing import Any
 from functools import lru_cache
 
 from app.core.config import settings
-from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repo.settings_repo import SettingsRepository
 
 logger = logging.getLogger(__name__)
 

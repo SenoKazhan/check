@@ -2,7 +2,7 @@
 Таблица динамических настроек системы.
 Позволяет изменять параметры без перезапуска приложения.
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from ..base import Base

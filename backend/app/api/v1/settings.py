@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user, require_role
 from app.core.config import settings
 from app.db.session import get_db
-from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repo.settings_repo import SettingsRepository
 from app.services.config_service import ConfigService
 from app.schemas.settings import (
     SettingResponse,

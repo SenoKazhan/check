@@ -1,8 +1,8 @@
-# backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, products
-from app.api.v1 import measurement, packing, tasks, settings, users  # ← добавили users
+
+from app.api import auth, products, users
+from app.api.v1 import measurement, packing, settings, tasks
 
 app = FastAPI(title="Warehouse CV", version="0.1.0")
 

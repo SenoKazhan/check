@@ -1,5 +1,6 @@
 # app/api/v1/measurement.py
 """API эндпоинты для модуля измерений."""
+from app.cv.qr_scanner import QRScanner
 import logging
 import os
 import uuid
@@ -89,6 +90,41 @@ async def _save_file_secure(file: UploadFile, upload_dir: Path) -> str:
 
     file_path.write_bytes(content)
     return str(file_path)
+
+
+@router.post("/scan")
+async def scan_qr(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Декодирует QR-код и ищет товар в справочнике."""
+    from app.cv.qr_scanner import QRScanner
+    import numpy as np
+    import cv2
+
+    content = await file.read()
+    img_array = np.frombuffer(content, np.uint8)
+    img_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    
+    if img_bgr is None:
+        raise HTTPException(422, "Не удалось декодировать изображение")
+
+    scanner = QRScanner()
+    result = await scanner.scan_and_lookup(img_bgr, db)
+
+    if result["product"] is None:
+        return {
+            "status": "not_found",
+            "qr_string": result["qr_string"],
+            "message": "QR-код распознан, но товар не найден"
+        }
+
+    return {
+        "status": "ok",
+        "product": result["product"],
+        "has_reference_dims": result["has_reference_dims"]
+    }
 
 
 @router.post("/start")
@@ -187,6 +223,7 @@ async def get_measurement(
         raise HTTPException(404, "Измерение не найдено")
     return measurement
 
+
 @router.get("/{measurement_id}/status")
 async def get_measurement_status(
     measurement_id: int,
@@ -196,11 +233,12 @@ async def get_measurement_status(
         select(Measurement.status).where(Measurement.id == measurement_id)
     )
     status = result.scalar_one_or_none()
-    
+
     if not status:
         raise HTTPException(404, detail="Измерение не найдено")
-    
+
     return {"measurement_id": measurement_id, "status": status}
+
 
 @router.get("/user/{user_id}")
 async def get_user_measurements(
@@ -219,3 +257,14 @@ async def get_user_measurements(
 
     result = await db.execute(query)
     return result.scalars().all()
+
+
+qr_scanner = QRScanner()
+
+
+@router.post("/scan")
+async def scan_qr(file: UploadFile, db: AsyncSession = Depends(get_db)):
+    img_bytes = await file.read()
+    img_np = np.frombuffer(img_bytes, np.uint8)
+    img_bgr = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+    return await qr_scanner.scan_and_lookup(img_bgr, db)

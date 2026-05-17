@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/providers/AuthProvider";
+import { useRouter } from "next/navigation";
 
 const VIEWS = ["front", "side", "top"] as const;
 type View = typeof VIEWS[number];
@@ -27,6 +29,39 @@ export default function UploadPanel() {
     setTaskId(null);
     setTaskState("");
     setResult(null);
+  };
+
+  const { user } = useAuth();
+  const router = useRouter();
+  const [qrFile, setQrFile] = useState<File | null>(null);
+
+  // Обработчик загрузки и сканирования QR
+  const handleQrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setQrFile(file);
+    setStatus("🔍 Сканирование QR-кода...");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const { data } = await api.post("/api/v1/measurements/scan", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+
+      if (data.status === "ok" && data.has_reference_dims) {
+        setStatus(`✅ Товар "${data.product.name}" найден. Используются эталонные габариты.`);
+        // Здесь можно сразу отправить товар в сессию упаковки или перенаправить
+        // router.push("/packing"); 
+      } else if (data.status === "not_found") {
+        setStatus("⚠️ QR распознан, но товар не найден. Загрузите фото для измерения.");
+        setQrFile(null);
+      }
+    } catch (err) {
+      setStatus("❌ Ошибка сканирования. Загрузите фото вручную.");
+      setQrFile(null);
+    }
   };
 
   const pollTask = useCallback(async (id: string) => {
@@ -88,9 +123,20 @@ export default function UploadPanel() {
   
   };
 
-  return ( // ← ✅ return начинается здесь
+  return (
     <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow-md border border-gray-100">
       <h2 className="text-xl font-bold mb-4 text-gray-800">Загрузка фотографий товара</h2>
+
+    <div className="mb-6 border-2 border-dashed border-indigo-300 rounded-lg p-4 bg-indigo-50/30 text-center">
+    <label className="block text-sm font-medium mb-2 text-indigo-700">📷 Сканировать QR-код товара</label>
+    <input
+      type="file"
+      accept="image/*"
+      onChange={handleQrScan}
+      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer"
+    />
+      {qrFile && <p className="mt-2 text-xs text-indigo-600 truncate font-medium">{qrFile.name}</p>}
+    </div>
       
       <div className="grid grid-cols-3 gap-4 mb-6">
         {VIEWS.map(view => (

@@ -1,6 +1,8 @@
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, require_role
@@ -24,12 +26,29 @@ async def create_product(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin"))
 ):
+    # Проверка на дубликат по QR-коду
+    if payload.qr_code:
+        existing = await db.execute(
+            select(Product).where(Product.qr_code == payload.qr_code)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Товар с QR-кодом '{payload.qr_code}' уже существует"
+            )
+    
     db_product = Product(**payload.model_dump())
     db.add(db_product)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Товар с таким уникальным идентификатором уже существует"
+        )
     await db.refresh(db_product)
     return db_product
-
 
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):

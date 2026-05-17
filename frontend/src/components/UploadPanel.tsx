@@ -31,8 +31,7 @@ export default function UploadPanel() {
     setResult(null);
   };
 
-  const { user } = useAuth();
-  const router = useRouter();
+
   const [qrFile, setQrFile] = useState<File | null>(null);
 
   // Обработчик загрузки и сканирования QR
@@ -52,8 +51,6 @@ export default function UploadPanel() {
 
       if (data.status === "ok" && data.has_reference_dims) {
         setStatus(`✅ Товар "${data.product.name}" найден. Используются эталонные габариты.`);
-        // Здесь можно сразу отправить товар в сессию упаковки или перенаправить
-        // router.push("/packing"); 
       } else if (data.status === "not_found") {
         setStatus("⚠️ QR распознан, но товар не найден. Загрузите фото для измерения.");
         setQrFile(null);

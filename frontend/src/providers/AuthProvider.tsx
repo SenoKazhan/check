@@ -1,13 +1,14 @@
+// frontend/src/providers/AuthProvider.tsx
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { api } from '@/lib/api';
 
 export interface User {
   id: number;
   login: string;
-  role: 'admin' | 'worker';
+  role: 'worker' | 'admin';
 }
 
 interface AuthContextType {
@@ -15,85 +16,82 @@ interface AuthContextType {
   loading: boolean;
   login: (login: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  checkSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
 
-  // Проверка сессии при монтировании провайдера
+  // Проверка сессии при монтировании
   useEffect(() => {
-    checkSession();
-  }, []);
+    let isMounted = true;
 
-  const login = async (loginValue: string, passwordValue: string) => {
-  try {
-    // Отправляем JSON, как ожидает LoginRequest
-    await api.post('/auth/login', {
-      login: loginValue,      // ← поле 'login', не 'username'
-      password: passwordValue
-    });
-    
-    await checkSession();
-    if (user) {
-      router.push('/');
-    }
-  } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'response' in err) {
-      const error = err as { response?: { status?: number; data?: { detail?: string } } };
-      if (error.response?.status === 401) {
-        throw new Error('Неверный логин или пароль');
+    const checkAuth = async () => {
+      try {
+        const { data } = await api.get<User>('/auth/me');
+        if (isMounted) {
+          setUser(data);
+        }
+      } catch {
+        // Любая ошибка = неавторизован
+        if (isMounted) {
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-    }
-    throw err;
-  }
-};
+    };
 
+    // Не проверяем авторизацию на странице логина
+    if (pathname === '/login') {
+      setLoading(false);
+      return;
+    }
+
+    checkAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pathname]);
+
+  // Вход в систему
+  const login = async (login: string, password: string) => {
+    try {
+      await api.post('/auth/login', { login, password });
+      const { data } = await api.get<User>('/auth/me');
+      setUser(data);
+      router.push('/');
+    } catch (error) {
+      // Ошибка уже обработана в api.ts интерцептором
+      throw error;
+    }
+  };
+
+  // Выход из системы
   const logout = async () => {
     try {
-      await api.post('/auth/logout');  // ← Тоже без /api
-    } catch {
-      // Игнорируем ошибки
+      await api.post('/auth/logout');
     } finally {
       setUser(null);
       router.push('/login');
     }
   };
 
-  const checkSession = async () => {
-    try {
-      const { data } = await api.get<User>('/auth/me');  // ← Тоже без /api
-      setUser(data);
-    } catch {
-      setUser(null);
-    }
-  };
-
-    const value: AuthContextType = {
-      user,
-      loading,
-      login,
-      logout,
-      checkSession
-    };
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-// Хук для использования контекста
-export function useAuth(): AuthContextType {
+export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');

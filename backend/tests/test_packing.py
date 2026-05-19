@@ -1,6 +1,7 @@
 # tests/test_packing_solver.py
-import pytest
+
 from app.schemas.packing import Item
+
 
 def test_solver_initialization():
     from app.packing.solver import BinPackingSolver

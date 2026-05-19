@@ -1,8 +1,10 @@
 # tests/test_schemas.py
 import pytest
-from app.schemas.auth import LoginRequest, UserResponse
-from app.schemas.packing import Item, Placement, PackResult
 from pydantic import ValidationError
+
+from app.schemas.auth import LoginRequest, UserResponse
+from app.schemas.packing import Item, Placement
+
 
 def test_login_request_valid():
     req = LoginRequest(login="alice", password="secret123")

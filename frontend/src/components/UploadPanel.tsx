@@ -105,7 +105,12 @@ export default function UploadPanel() {
     formData.append("files", files.top);
 
     try {
-      const { data } = await api.post("/api/v1/measurements/start", formData);
+      const { data } = await api.post("/api/v1/measurements/start", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        withCredentials: true
+      });
       setTaskId(data.task_id);
       setTaskState("PENDING");
       setStatus("Задача поставлена в очередь. Ожидание обработки...");

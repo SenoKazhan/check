@@ -21,7 +21,6 @@ COPY . .
 
 RUN chown -R appuser:appuser /app
 
-USER appuser
 
 EXPOSE 8000
 RUN chmod +x entrypoint.sh

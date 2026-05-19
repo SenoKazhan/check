@@ -15,7 +15,6 @@ interface Product {
   notes: string | null;
 }
 
-// Тип для создания/обновления товара (все поля опциональны кроме name)
 interface ProductFormData {
   name: string;
   qr_code?: string;
@@ -35,10 +34,10 @@ export default function ProductsPage() {
     name: "", qr_code: "", ref_length_mm: "", ref_width_mm: "", ref_height_mm: "", notes: ""
   });
 
-  // Защита от не-админов
+  // Защита: пускаем только авторизованных (и админов, и воркеров)
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== "admin")) {
-      router.push("/");
+    if (!authLoading && !user) {
+      router.push("/login");
     }
   }, [user, authLoading, router]);
 
@@ -51,25 +50,22 @@ export default function ProductsPage() {
     }
   };
 
-  useEffect(() => { fetchProducts(); }, []);
+  useEffect(() => { 
+    if (user) fetchProducts(); 
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-    
       const payload: ProductFormData = { name: formData.name };
-      
       if (formData.qr_code) payload.qr_code = formData.qr_code;
       
-      // Преобразуем строковые значения в числа для габаритов
       const dimensionKeys = ["ref_length_mm", "ref_width_mm", "ref_height_mm"] as const;
       dimensionKeys.forEach(key => {
         const value = formData[key];
         if (value) {
           const numValue = parseFloat(value);
-          if (!isNaN(numValue)) {
-            payload[key] = numValue;
-          }
+          if (!isNaN(numValue)) payload[key] = numValue;
         }
       });
       
@@ -80,7 +76,6 @@ export default function ProductsPage() {
       setFormData({ name: "", qr_code: "", ref_length_mm: "", ref_width_mm: "", ref_height_mm: "", notes: "" });
       fetchProducts();
     } catch (err: unknown) {
-      // ✅ Исправление 2: используем unknown вместо any с тип-гардом
       if (err && typeof err === "object" && "response" in err) {
         const error = err as { response?: { data?: { detail?: string } } };
         alert(error.response?.data?.detail || "Ошибка добавления товара");
@@ -91,89 +86,40 @@ export default function ProductsPage() {
   };
 
   if (authLoading || loading) return <p className="p-8 text-center text-gray-500">Загрузка справочника...</p>;
-  if (!user || user.role !== "admin") return null;
+  if (!user) return null;
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Справочник товаров</h1>
-        <button 
-          onClick={() => setIsFormOpen(true)} 
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          + Добавить товар
-        </button>
+        
+        {/* КНОПКА ДОБАВЛЕНИЯ ТОЛЬКО ДЛЯ АДМИНА */}
+        {user.role === "admin" && (
+          <button 
+            onClick={() => setIsFormOpen(true)} 
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            + Добавить товар
+          </button>
+        )}
       </div>
 
-      {isFormOpen && (
+      {/* ФОРМА ДОБАВЛЕНИЯ ТОЛЬКО ДЛЯ АДМИНА */}
+      {isFormOpen && user.role === "admin" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
             <h2 className="text-xl font-semibold">Новый товар</h2>
-            
-            <input 
-              required 
-              placeholder="Название" 
-              value={formData.name} 
-              onChange={e => setFormData({...formData, name: e.target.value})} 
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
-            />
-            
-            <input 
-              placeholder="QR-код (опционально)" 
-              value={formData.qr_code} 
-              onChange={e => setFormData({...formData, qr_code: e.target.value})} 
-              className="w-full p-2 border border-gray-300 rounded-lg" 
-            />
-            
+            <input required placeholder="Название" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            <input placeholder="QR-код (опционально)" value={formData.qr_code} onChange={e => setFormData({...formData, qr_code: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg" />
             <div className="grid grid-cols-3 gap-3">
-              <input 
-                type="number" 
-                step="0.1" 
-                placeholder="Длина (мм)" 
-                value={formData.ref_length_mm} 
-                onChange={e => setFormData({...formData, ref_length_mm: e.target.value})} 
-                className="p-2 border rounded-lg" 
-              />
-              <input 
-                type="number" 
-                step="0.1" 
-                placeholder="Ширина (мм)" 
-                value={formData.ref_width_mm} 
-                onChange={e => setFormData({...formData, ref_width_mm: e.target.value})} 
-                className="p-2 border rounded-lg" 
-              />
-              <input 
-                type="number" 
-                step="0.1" 
-                placeholder="Высота (мм)" 
-                value={formData.ref_height_mm} 
-                onChange={e => setFormData({...formData, ref_height_mm: e.target.value})} 
-                className="p-2 border rounded-lg" 
-              />
+              <input type="number" step="0.1" placeholder="Длина (мм)" value={formData.ref_length_mm} onChange={e => setFormData({...formData, ref_length_mm: e.target.value})} className="p-2 border rounded-lg" />
+              <input type="number" step="0.1" placeholder="Ширина (мм)" value={formData.ref_width_mm} onChange={e => setFormData({...formData, ref_width_mm: e.target.value})} className="p-2 border rounded-lg" />
+              <input type="number" step="0.1" placeholder="Высота (мм)" value={formData.ref_height_mm} onChange={e => setFormData({...formData, ref_height_mm: e.target.value})} className="p-2 border rounded-lg" />
             </div>
-            
-            <textarea 
-              placeholder="Примечания" 
-              value={formData.notes} 
-              onChange={e => setFormData({...formData, notes: e.target.value})} 
-              className="w-full p-2 border rounded-lg resize-none" 
-              rows={2} 
-            />
-            
+            <textarea placeholder="Примечания" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full p-2 border rounded-lg resize-none" rows={2} />
             <div className="flex justify-end gap-3 mt-4">
-              <button 
-                type="button" 
-                onClick={() => setIsFormOpen(false)} 
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
-              >
-                Отмена
-              </button>
-              <button 
-                type="submit" 
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Сохранить
-              </button>
+              <button type="button" onClick={() => setIsFormOpen(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Отмена</button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Сохранить</button>
             </div>
           </form>
         </div>
@@ -207,7 +153,7 @@ export default function ProductsPage() {
             {products.length === 0 && (
               <tr>
                 <td colSpan={5} className="p-6 text-center text-gray-500">
-                  Справочник пуст. Добавьте первый товар.
+                  Справочник пуст. {user.role === "admin" ? "Добавьте первый товар." : "Ожидание добавления товаров администратором."}
                 </td>
               </tr>
             )}

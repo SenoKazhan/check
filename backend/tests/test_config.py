@@ -1,6 +1,7 @@
 # tests/test_config.py
-import pytest
+
 from app.core.config import Settings
+
 
 def test_settings_defaults():
     """Проверка значений по умолчанию."""

@@ -20,6 +20,7 @@ def test_create_and_decode_token(mock_settings):
 def test_decode_expired_token(mock_settings):
     # Токен с истекшим сроком (exp в прошлом)
     import time
+
     from jose import jwt
     expired_payload = {
         "sub": "1",

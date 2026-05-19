@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # JWT
     jwt_secret_key: str = Field(
-        default="dev-secret-key-change-in-prod",
+        default="please-change-me-for-your-safety ",
         description="Секретный ключ для JWT"
     )
     jwt_algorithm: str = "HS256"

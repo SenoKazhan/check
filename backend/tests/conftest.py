@@ -1,6 +1,8 @@
 # tests/conftest.py
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
+
 
 @pytest.fixture
 def mock_settings():

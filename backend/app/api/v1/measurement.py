@@ -14,7 +14,7 @@ from celery.result import AsyncResult
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.db.models.user import User
 from app.api.dependencies import get_current_user
 from app.core.celery_app import celery_app
 from app.core.config import settings
@@ -88,7 +88,13 @@ async def _save_file_secure(file: UploadFile, upload_dir: Path) -> str:
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = upload_dir / unique_filename
 
-    file_path.write_bytes(content)
+    # Принудительная запись и синхронизация с диском (решение проблемы с WSL2 volumes)
+    import os
+    with open(file_path, "wb") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+        
     return str(file_path)
 
 
@@ -96,7 +102,7 @@ async def _save_file_secure(file: UploadFile, upload_dir: Path) -> str:
 async def scan_qr(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """Декодирует QR-код и ищет товар в справочнике."""
     from app.cv.qr_scanner import QRScanner
@@ -133,25 +139,16 @@ async def start_measurement(
                                    description="3 изображения: front, side, top"),
     marker_size_mm: float = 50.0,
     product_id: Optional[int] = None,
-    current_user: dict = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
+    current_user: User = Depends(get_current_user) # Убрали BackgroundTasks
 ):
-    """
-    Запуск задачи измерения габаритов.
-    Принимает 3 файла, валидирует, сохраняет и запускает Celery-задачу.
-    """
     if len(files) != 3:
-        raise HTTPException(
-            400, detail="Требуется ровно 3 файла: front, side, top")
+        raise HTTPException(400, detail="Требуется ровно 3 файла: front, side, top")
 
-    # Создаём директорию для загрузки (если используется общий volume)
-    upload_dir = Path(settings.upload_dir if hasattr(
-        settings, 'upload_dir') else "/app/uploads")
+    upload_dir = Path("/app/uploads")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths = []
     try:
-        # Последовательная валидация и сохранение
         for file in files:
             path = await _save_file_secure(file, upload_dir)
             saved_paths.append(path)
@@ -159,32 +156,29 @@ async def start_measurement(
         task = process_measurement_task.delay(
             image_paths=saved_paths,
             marker_size_mm=marker_size_mm,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             product_id=product_id
         )
 
-        logger.info(
-            f"Задача измерения запущена: task_id={task.id}, user_id={current_user['id']}")
+        logger.info(f"Задача измерения запущена: task_id={task.id}, user_id={current_user.id}")
 
         return {
             "task_id": task.id,
             "status": "processing",
-            "message": "Задача измерения запущена. Используйте task_id для проверки статуса."
+            "message": "Задача измерения запущена."
         }
 
     except HTTPException:
-
+        # Если файл не прошел валидацию - удаляем то, что успели сохранить
         _cleanup_files(saved_paths)
         raise
     except Exception as e:
         logger.error(f"Ошибка при запуске измерения: {e}", exc_info=True)
+        # Если упало на этапе отправки в Celery - тоже удаляем
         _cleanup_files(saved_paths)
-        raise HTTPException(
-            500, detail="Внутренняя ошибка сервера при обработке запроса")
-    finally:
+        raise HTTPException(500, detail="Внутренняя ошибка сервера при обработке запроса")
+        
 
-        if background_tasks and saved_paths:
-            background_tasks.add_task(_cleanup_files, saved_paths)
 
 
 @router.get("/tasks/{task_id}")

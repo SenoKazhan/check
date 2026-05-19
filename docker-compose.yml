@@ -37,7 +37,7 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/ir_model:/app/ir_model:ro
-      - uploads_data:/app/uploads
+      - ./backend/uploads:/app/uploads
     ports:
       - "8001:8000"
     environment:
@@ -61,7 +61,8 @@ services:
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=1
     volumes:
       - ./backend:/app
-      - uploads_data:/app/uploads
+      - ./backend/ir_model:/app/ir_model:ro  
+      - ./backend/uploads:/app/uploads        
     environment:
       - DATABASE_URL=postgresql+asyncpg://app_user:dev_password@postgres:5432/warehouse_db
       - REDIS_URL=redis://redis:6379/0
@@ -87,4 +88,3 @@ services:
 
 volumes:
   pgdata:
-  uploads_data:

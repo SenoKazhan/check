@@ -7,7 +7,6 @@ select = ["E", "F", "I"]  # ошибки, flake8, isort
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
 minversion = "7.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]

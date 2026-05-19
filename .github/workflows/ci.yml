@@ -29,6 +29,6 @@ jobs:
       run: ruff check backend/ --exit-zero
 
     - name: Run unit tests with coverage
-      continue-on-error: true
       working-directory: backend
-      run: pytest tests/ --cov=app --cov-report=term-missing
+      run: |
+        PYTHONPATH=. pytest tests/ --cov=app --cov-report=term-missing

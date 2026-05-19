@@ -30,4 +30,5 @@ jobs:
 
     - name: Run unit tests with coverage
       continue-on-error: true
-      run: pytest backend/tests/ --cov=backend/app --cov-report=term-missing
+      working-directory: backend
+      run: pytest tests/ --cov=app --cov-report=term-missing

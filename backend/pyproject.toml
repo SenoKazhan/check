@@ -8,3 +8,19 @@ select = ["E", "F", "I"]  # ошибки, flake8, isort
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+    "--cov-fail-under=50",  # 👈 Минимальное покрытие 50%
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "unit: unit tests",
+    "integration: integration tests",
+]

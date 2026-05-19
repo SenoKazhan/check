@@ -15,7 +15,7 @@ def test_login_request_invalid():
 
 def test_user_response():
     resp = UserResponse(id=1, login="bob", role="worker")
-    assert resp.dict() == {"id": 1, "login": "bob", "role": "worker"}
+    assert resp.model_dump() == {"id": 1, "login": "bob", "role": "worker"}
 
 def test_packing_item():
     item = Item(product_id=5, length_mm=100, width_mm=80, height_mm=60, quantity=2)

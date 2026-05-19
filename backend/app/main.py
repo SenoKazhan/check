@@ -1,8 +1,41 @@
+import logging
+import sys
+from logging.config import dictConfig
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, products, users
 from app.api.v1 import measurement, packing, settings, tasks
+
+log_config = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d | session=%(session_id)s user=%(user_id)s | %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "default": {
+            "level": "INFO",
+            "formatter": "standard",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "root": {
+        "handlers": ["default"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "app": {"level": "INFO", "handlers": ["default"], "propagate": False},
+    }
+}
+
+dictConfig(log_config)
+
 
 app = FastAPI(title="Warehouse CV", version="0.1.0")
 

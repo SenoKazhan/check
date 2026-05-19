@@ -68,7 +68,7 @@ LINE_TYPE: int = cv2.LINE_AA
 COLOR_MARKER: Tuple[int, int, int] = (0, 255, 0)      # зелёный
 COLOR_OBJECT: Tuple[int, int, int] = (255, 100, 0)    # оранжевый
 COLOR_TEXT: Tuple[int, int, int] = (255, 255, 255)    # белый
-COLOR_BACKGROUND: Tuple[int, int, int] = (30, 30, 30) # тёмно-серый
+COLOR_BACKGROUND: Tuple[int, int, int] = (30, 30, 30)  # тёмно-серый
 
 # Параметры сегментации
 MIN_OBJECT_AREA_RATIO: float = 0.05  # Минимум 5% от кадра
@@ -171,18 +171,21 @@ def align_object_to_grid(
 
     # Выбираем контур максимальной площади (основной объект)
     primary_contour = max(contours, key=cv2.contourArea)
-    (center_x, center_y), (width_rect, height_rect), raw_angle = cv2.minAreaRect(primary_contour)
+    (center_x, center_y), (width_rect,
+                           height_rect), raw_angle = cv2.minAreaRect(primary_contour)
 
     # Нормализация угла: OpenCV возвращает [-90, 0) для minAreaRect
     # Приводим к диапазону [0, 180) с учётом возможного обмена ширины/высоты
-    normalized_angle = _normalize_min_area_rect_angle(raw_angle, width_rect, height_rect)
+    normalized_angle = _normalize_min_area_rect_angle(
+        raw_angle, width_rect, height_rect)
 
     # 2. Вычисление корректирующего угла для выравнивания по эталонной оси
     correction_angle = -(normalized_angle - reference_angle_deg)
     rotation_center = (float(center_x), float(center_y))
 
     # 3. Построение матрицы аффинного преобразования (поворот вокруг центра)
-    rotation_matrix = cv2.getRotationMatrix2D(rotation_center, correction_angle, scale=1.0)
+    rotation_matrix = cv2.getRotationMatrix2D(
+        rotation_center, correction_angle, scale=1.0)
     image_height, image_width = image_rgb.shape[:2]
 
     # 4. Применение преобразования к изображению (линейная интерполяция)
@@ -439,7 +442,8 @@ class ScaleEstimator:
 
         # Безопасная коррекция: ограничение влияния шумной глубины ±10%
         ratio = self._marker_depth_m / depth_m
-        ratio = np.clip(ratio, 1.0 - ALIGNMENT_CORRECTION_TOLERANCE, 1.0 + ALIGNMENT_CORRECTION_TOLERANCE)
+        ratio = np.clip(ratio, 1.0 - ALIGNMENT_CORRECTION_TOLERANCE,
+                        1.0 + ALIGNMENT_CORRECTION_TOLERANCE)
         return self._px_per_m_at_marker * ratio
 
     def measure_bbox(
@@ -473,7 +477,8 @@ class ScaleEstimator:
             ry1 = int(np.clip(y2, 0, height - 1))
             roi = self._depth_map[ry0:ry1, rx0:rx1]
             # Устойчивая оценка глубины: 10-й перцентиль (защита от выбросов)
-            obj_depth_m = float(np.percentile(roi, 10)) if roi.size > 0 else self._marker_depth_m
+            obj_depth_m = float(np.percentile(
+                roi, 10)) if roi.size > 0 else self._marker_depth_m
             ppm = self.px_per_m_at_depth(obj_depth_m)
 
         result: Dict[str, float] = {
@@ -617,7 +622,8 @@ def segment_object_from_depth(
         & (depth_work < DEPTH_MAX_M)
     )
     if valid_mask.sum() < MIN_VALID_PIXELS:
-        logger.warning("Слишком мало валидных пикселей глубины: %d < %d", valid_mask.sum(), MIN_VALID_PIXELS)
+        logger.warning("Слишком мало валидных пикселей глубины: %d < %d",
+                       valid_mask.sum(), MIN_VALID_PIXELS)
         return None
 
     # Нормализация глубины для бинаризации
@@ -631,8 +637,10 @@ def segment_object_from_depth(
 
     # Морфологическая фильтрация шума
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, MORPH_KERNEL_SIZE)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=MORPH_OPEN_ITERATIONS)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=MORPH_CLOSE_ITERATIONS)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN,
+                              kernel, iterations=MORPH_OPEN_ITERATIONS)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE,
+                              kernel, iterations=MORPH_CLOSE_ITERATIONS)
 
     # Поиск контуров
     contours, _ = cv2.findContours(
@@ -702,7 +710,8 @@ def _binarize_depth_map(
             cv2.THRESH_BINARY_INV,
         )
     except ImportError:
-        logger.warning("skimage не установлен, используется fallback-порог 127")
+        logger.warning(
+            "skimage не установлен, используется fallback-порог 127")
         _, binary = cv2.threshold(
             (depth_norm * 255).astype(np.uint8),
             127,
@@ -749,11 +758,14 @@ def enhance_depth_visualization(
         x2, y2 = min(W, x2), min(H, y2)
         if x2 > x1 and y2 > y1:
             roi_depth = depth_map[y1:y2, x1:x2]
-            p_min, p_max = np.percentile(roi_depth, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
+            p_min, p_max = np.percentile(
+                roi_depth, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
         else:
-            p_min, p_max = np.percentile(depth_map, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
+            p_min, p_max = np.percentile(
+                depth_map, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
     else:
-        p_min, p_max = np.percentile(depth_map, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
+        p_min, p_max = np.percentile(
+            depth_map, (DEPTH_VIS_PERCENTILE_LOW, DEPTH_VIS_PERCENTILE_HIGH))
 
     depth_range = p_max - p_min
     if depth_range < 1e-5:
@@ -773,7 +785,8 @@ def enhance_depth_visualization(
     # Подсветка границ объекта
     if bbox:
         x1, y1, x2, y2 = bbox
-        cv2.rectangle(depth_vis, (x1, y1), (x2, y2), (255, 255, 255), thickness=2)
+        cv2.rectangle(depth_vis, (x1, y1), (x2, y2),
+                      (255, 255, 255), thickness=2)
 
     return depth_vis
 
@@ -788,11 +801,13 @@ def draw_marker(
     pts = corners.astype(int)
     cv2.polylines(image, [pts], isClosed=True, color=COLOR_MARKER, thickness=2)
     for pt in pts:
-        cv2.circle(image, tuple(pt), radius=5, color=COLOR_MARKER, thickness=-1)
+        cv2.circle(image, tuple(pt), radius=5,
+                   color=COLOR_MARKER, thickness=-1)
 
     cx, cy = marker_center(corners)
     label = f"ArUco ID={marker_id} [{marker_size_m*1000:.1f}mm]"
-    _put_label(image, label, int(cx), int(np.min(corners[:, 1])) - 12, COLOR_MARKER)
+    _put_label(image, label, int(cx), int(
+        np.min(corners[:, 1])) - 12, COLOR_MARKER)
 
 
 def draw_measurement(
@@ -864,8 +879,10 @@ def _draw_dimension_arrow(
     vertical: bool = False
 ) -> None:
     """Вспомогательная функция: отрисовка размерной стрелки с подписью."""
-    cv2.arrowedLine(image, (x1, y1), (x2, y2), color, thickness=1, tipLength=0.05)
-    cv2.arrowedLine(image, (x2, y2), (x1, y1), color, thickness=1, tipLength=0.05)
+    cv2.arrowedLine(image, (x1, y1), (x2, y2), color,
+                    thickness=1, tipLength=0.05)
+    cv2.arrowedLine(image, (x2, y2), (x1, y1), color,
+                    thickness=1, tipLength=0.05)
     mid_x, mid_y = (x1 + x2) // 2, (y1 + y2) // 2
     _put_label(image, label, mid_x, mid_y, color)
 
@@ -935,7 +952,8 @@ def measure_object_auto(
     draw_marker(result_img, corners, marker_id, marker_size_m)
 
     # 2. Оценка масштаба
-    scale = ScaleEstimator(corners, marker_size_m, depth_map, same_plane=same_plane)
+    scale = ScaleEstimator(corners, marker_size_m,
+                           depth_map, same_plane=same_plane)
 
     # 3. Сегментация объекта
     seg_result = segment_object_from_depth(
@@ -963,7 +981,8 @@ def measure_object_auto(
         object_mask = aligned_mask
         # Пересчёт bbox на выровненном изображении
         contours, _ = cv2.findContours(
-            object_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            object_mask.astype(
+                np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         if contours:
             cnt = max(contours, key=cv2.contourArea)
@@ -1018,7 +1037,8 @@ def measure_from_wrapper(
     Tuple[measurements, annotated_image, depth_visualization]
     """
     logger.info("Запуск Depth Anything V2 (metric depth)...")
-    depth_map = wrapper.estimate(image_bgr, multi_scale=multi_scale)
+    depth_map = wrapper.estimate_multi_scale(
+        image_bgr, multi_scale=multi_scale)
 
     # Визуализация глубины
     if enhance_visualization:
@@ -1075,4 +1095,3 @@ def _parse_args() -> argparse.Namespace:
         help="Отключить выравнивание объекта"
     )
     return parser.parse_args()
-

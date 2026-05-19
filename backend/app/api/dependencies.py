@@ -24,7 +24,6 @@ async def check_auth_rate_limit(request: Request) -> None:
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Превышено количество попыток входа. Повторите через {ttl} сек."
             )
-        
         pipe = redis_client.pipeline()
         pipe.incr(key)
         pipe.expire(key, AUTH_RATE_WINDOW)

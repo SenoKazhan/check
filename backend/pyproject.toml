@@ -15,7 +15,7 @@ addopts = [
     "--tb=short",
     "--cov=app",
     "--cov-report=term-missing",
-    "--cov-report=html,   # сначала 30%, потом повышаем
+    "--cov-report=html",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

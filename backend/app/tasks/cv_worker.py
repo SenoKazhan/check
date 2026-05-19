@@ -36,7 +36,7 @@ def process_measurement_task(self, image_paths: list[str], marker_size_mm: float
                 raise ValueError(f"Не удалось прочитать: {img_path}")
 
             # Оценка глубины
-            depth_map = _model.estimate_multi_scale(img, multi_scale=True)
+            depth_map = _model.estimate(img, multi_scale=True)
 
             # Измерение с ArUco (bbox=None → интерактивный режим пока отключим,
             # позже заменим на автосегментацию или передадим bbox с фронта)

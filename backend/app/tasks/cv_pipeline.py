@@ -477,8 +477,6 @@ def process_single_view(
         same_plane=True,
         enhance_visualization=True,
         gamma=DEFAULT_GAMMA_CORRECTION,
-        enable_alignment=enable_alignment,
-        reference_angle_deg=reference_angle,
     )
 
     if measurements is None:
@@ -760,6 +758,8 @@ def process_measurement_task(
                 "verified_ok": verify_res.ok,
             },
         )
+        
+        cleanup_temporary_files(image_paths)
 
         return {
             "status": "success",
@@ -791,4 +791,4 @@ def process_measurement_task(
 
     finally:
         # Гарантированная очистка временных файлов
-        cleanup_temporary_files(image_paths)
+        pass

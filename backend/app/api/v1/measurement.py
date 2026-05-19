@@ -180,26 +180,27 @@ async def start_measurement(
         
 
 
-
 @router.get("/tasks/{task_id}")
-async def get_task_status(task_id: str):
-    """
-    Получение статуса задачи измерения.
-    """
-
+async def get_task_result(task_id: str):
     result = AsyncResult(task_id, app=celery_app)
-
+    
     response = {
         "task_id": task_id,
-        "status": result.state,
+        "state": result.state,
     }
-
+    
     if result.state == "SUCCESS":
-        response["result"] = result.result
+        raw = result.result  # dict от Celery
+        response["result"] = {
+            "length_mm": raw["dimensions_mm"]["length_mm"],
+            "width_mm": raw["dimensions_mm"]["width_mm"],
+            "height_mm": raw["dimensions_mm"]["height_mm"],
+            "confidence": raw["confidence"],
+            "measurement_id": raw["measurement_id"],
+        }
     elif result.state == "FAILURE":
-        response["error"] = str(
-            result.info) if result.info else "Неизвестная ошибка"
-
+        response["error"] = str(result.info) if result.info else "Неизвестная ошибка"
+    
     return response
 
 

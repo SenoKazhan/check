@@ -19,8 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копируем код
 COPY . .
 
-RUN chown -R appuser:appuser /app
-
 
 EXPOSE 8000
 RUN chmod +x entrypoint.sh

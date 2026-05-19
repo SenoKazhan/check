@@ -1,18 +1,26 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { useAuth } from "@/providers/AuthProvider";
-import { useRouter } from "next/navigation";
 
 const VIEWS = ["front", "side", "top"] as const;
 type View = typeof VIEWS[number];
 
+// Интерфейс адаптирован под реальную структуру ответа Celery
 interface MeasureResult {
-  length_mm: number;
-  width_mm: number;
-  height_mm: number;
-  confidence: number;
+  status: string;
   measurement_id?: number;
+  final_status?: string;
+  confidence: number;
+  dimensions_mm?: {
+    length_mm: number;
+    width_mm: number;
+    height_mm: number;
+  };
+}
+
+// Вспомогательная функция для безопасного доступа к габаритам
+function getDimension(result: MeasureResult | null, key: 'length_mm' | 'width_mm' | 'height_mm'): number | null {
+  return result?.dimensions_mm?.[key] ?? null;
 }
 
 export default function UploadPanel() {
@@ -31,10 +39,8 @@ export default function UploadPanel() {
     setResult(null);
   };
 
-
   const [qrFile, setQrFile] = useState<File | null>(null);
 
-  // Обработчик загрузки и сканирования QR
   const handleQrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -55,7 +61,7 @@ export default function UploadPanel() {
         setStatus("⚠️ QR распознан, но товар не найден. Загрузите фото для измерения.");
         setQrFile(null);
       }
-    } catch (err) {
+    } catch {
       setStatus("❌ Ошибка сканирования. Загрузите фото вручную.");
       setQrFile(null);
     }
@@ -63,12 +69,21 @@ export default function UploadPanel() {
 
   const pollTask = useCallback(async (id: string) => {
     try {
-      const { data } = await api.get(`/api/v1/tasks/${id}`);
+      const { data } = await api.get<{
+        state: string;
+        result?: MeasureResult;
+        error?: string;
+      }>(`/api/v1/tasks/${id}`);
       setTaskState(data.state);
 
       if (data.state === "SUCCESS") {
-        setResult(data.result);
-        setStatus("✅ Измерение завершено. Данные готовы к упаковке.");
+        // Валидация структуры ответа перед установкой в state
+        if (data.result && typeof data.result.confidence === 'number') {
+          setResult(data.result);
+          setStatus("✅ Измерение завершено. Данные готовы к упаковке.");
+        } else {
+          setStatus("❌ Ошибка: сервер вернул некорректные данные измерения.");
+        }
         setLoading(false);
       } else if (data.state === "FAILURE") {
         setStatus(`❌ Ошибка обработки: ${data.error || "Сбой воркера"}`);
@@ -76,8 +91,9 @@ export default function UploadPanel() {
       } else {
         setStatus("⏳ Обработка изображений нейросетью...");
       }
-    } catch {
-      
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Ошибка опроса задачи';
+      setStatus(`❌ ${message}`);
     }
   }, []);
 
@@ -105,10 +121,8 @@ export default function UploadPanel() {
     formData.append("files", files.top);
 
     try {
-      const { data } = await api.post("/api/v1/measurements/start", formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
+      const { data } = await api.post<{ task_id: string }>("/api/v1/measurements/start", formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
         withCredentials: true
       });
       setTaskId(data.task_id);
@@ -117,28 +131,31 @@ export default function UploadPanel() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Неизвестная ошибка';
       setStatus(`❌ Ошибка: ${message}`);
-      } finally {
-    if (taskState !== "SUCCESS" && taskState !== "FAILURE") {
       setLoading(false);
     }
-  }
-  
   };
+
+  // Проверка готовности результата к отображению
+  const hasDimensions = result !== null && 
+    result.dimensions_mm !== undefined &&
+    typeof result.dimensions_mm.length_mm === 'number' &&
+    typeof result.dimensions_mm.width_mm === 'number' &&
+    typeof result.dimensions_mm.height_mm === 'number';
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow-md border border-gray-100">
       <h2 className="text-xl font-bold mb-4 text-gray-800">Загрузка фотографий товара</h2>
 
-    <div className="mb-6 border-2 border-dashed border-indigo-300 rounded-lg p-4 bg-indigo-50/30 text-center">
-    <label className="block text-sm font-medium mb-2 text-indigo-700">📷 Сканировать QR-код товара</label>
-    <input
-      type="file"
-      accept="image/*"
-      onChange={handleQrScan}
-      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer"
-    />
-      {qrFile && <p className="mt-2 text-xs text-indigo-600 truncate font-medium">{qrFile.name}</p>}
-    </div>
+      <div className="mb-6 border-2 border-dashed border-indigo-300 rounded-lg p-4 bg-indigo-50/30 text-center">
+        <label className="block text-sm font-medium mb-2 text-indigo-700">📷 Сканировать QR-код товара</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleQrScan}
+          className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer"
+        />
+        {qrFile && <p className="mt-2 text-xs text-indigo-600 truncate font-medium">{qrFile.name}</p>}
+      </div>
       
       <div className="grid grid-cols-3 gap-4 mb-6">
         {VIEWS.map(view => (
@@ -173,25 +190,39 @@ export default function UploadPanel() {
         </div>
       )}
 
-      {result && (
+      {hasDimensions && (
         <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <h3 className="font-semibold text-gray-800 mb-3">📏 Результаты измерения</h3>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="bg-white p-3 rounded shadow-sm">
               <div className="text-xs text-gray-500">Длина</div>
-              <div className="text-lg font-bold text-blue-700">{result.length_mm.toFixed(1)} <span className="text-xs font-normal">мм</span></div>
+              <div className="text-lg font-bold text-blue-700">
+                {getDimension(result, 'length_mm')?.toFixed(1) ?? "—"} 
+                <span className="text-xs font-normal"> мм</span>
+              </div>
             </div>
             <div className="bg-white p-3 rounded shadow-sm">
               <div className="text-xs text-gray-500">Ширина</div>
-              <div className="text-lg font-bold text-blue-700">{result.width_mm.toFixed(1)} <span className="text-xs font-normal">мм</span></div>
+              <div className="text-lg font-bold text-blue-700">
+                {getDimension(result, 'width_mm')?.toFixed(1) ?? "—"} 
+                <span className="text-xs font-normal"> мм</span>
+              </div>
             </div>
             <div className="bg-white p-3 rounded shadow-sm">
               <div className="text-xs text-gray-500">Высота</div>
-              <div className="text-lg font-bold text-blue-700">{result.height_mm.toFixed(1)} <span className="text-xs font-normal">мм</span></div>
+              <div className="text-lg font-bold text-blue-700">
+                {getDimension(result, 'height_mm')?.toFixed(1) ?? "—"} 
+                <span className="text-xs font-normal"> мм</span>
+              </div>
             </div>
           </div>
           <div className="mt-3 flex justify-between items-center text-xs text-gray-500">
-            <span>Уверенность модели: <b className={result.confidence > 0.4 ? "text-green-600" : "text-orange-500"}>{(result.confidence * 100).toFixed(1)}%</b></span>
+            <span>
+              Уверенность модели: 
+              <b className={result!.confidence > 0.4 ? "text-green-600" : "text-orange-500"}>
+                {(result!.confidence * 100).toFixed(1)}%
+              </b>
+            </span>
             <button 
               onClick={() => { /* Роутинг на страницу упаковки */ }}
               className="px-4 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition font-medium"
@@ -203,4 +234,4 @@ export default function UploadPanel() {
       )}
     </div>
   );
-} 
+}

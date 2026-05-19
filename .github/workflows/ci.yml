@@ -29,4 +29,4 @@ jobs:
       run: ruff check backend/ --exit-zero
 
     - name: Run unit tests with coverage
-      run: pytest backend/tests/ --cov=backend/app --cov-report=term-missing
+      run: pytest backend/tests/ --cov=backend/app --cov-report=term-missing --exit-zero

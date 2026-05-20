@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.models.user import User
-from app.db.repositories.user_repository import UserRepository
+from app.db.repo.user_repository import UserRepository
 from app.services.authentication_service import AuthenticationService
 from app.services.rate_limiting_service import RateLimitingService
 from app.core.config import ApplicationSettings, settings

@@ -1,9 +1,11 @@
 # backend/app/services/authentication_service.py
 from datetime import datetime, timedelta, timezone
 import bcrypt
-from jose import jwt, JWTError, ExpiredSignatureError, JWTClaimsError
+from jose import jwt
+from jose.exceptions import JWTError, ExpiredSignatureError, JWTClaimsError
 from app.core.config import ApplicationSettings
 from app.domain.exceptions import DomainException
+
 
 class AuthenticationService:
     def __init__(self, settings: ApplicationSettings):
@@ -17,7 +19,8 @@ class AuthenticationService:
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
     def create_access_token(self, subject: str, role: str, expires_delta: timedelta | None = None) -> str:
-        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=self._settings.access_token_expire_minutes))
+        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(
+            minutes=self._settings.access_token_expire_minutes))
         payload = {
             "sub": str(subject),
             "role": role,

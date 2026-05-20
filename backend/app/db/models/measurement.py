@@ -1,13 +1,14 @@
 """
-Таблица 3.4: Результаты CV-измерений.
+Модель данных для таблицы измерений (measurements).
+Соответствует Таблице 3.4: Результаты CV-измерений.
 """
-import enum
 from sqlalchemy import (
     Column, Integer, Float, Boolean, Text, DateTime,
-    ForeignKey, Index, Enum as SAEnum
+    ForeignKey, Index, func
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import ENUM
+
 from ..base import Base
 from app.db.enums import MeasurementStatus
 
@@ -30,7 +31,7 @@ class Measurement(Base):
     user_id = Column(Integer, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False)
 
-    # Результаты измерений
+    # Результаты измерений (габариты в мм)
     length_mm = Column(Float, nullable=False)
     width_mm = Column(Float, nullable=False)
     height_mm = Column(Float, nullable=False)
@@ -40,19 +41,24 @@ class Measurement(Base):
     verified_ok = Column(Boolean, nullable=True)
     override_reason = Column(Text, nullable=True)
 
+    # Метаданные
     measured_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
-    user = relationship("User", back_populates="measurements")
-    product = relationship("Product", back_populates="measurements")
-    packing_items = relationship(
-        "PackingItem", back_populates="measurement", lazy="select")
-
+    # Статус измерения (использует PostgreSQL ENUM)
     status = Column(
-        SAEnum(MeasurementStatus, name='measurement_status_enum'),  
+        ENUM(
+            * [e.value for e in MeasurementStatus],
+            name="measurement_status_enum",
+            create_type=False  # Тип создается вручную в conftest.py или Alembic
+        ),
         nullable=False,
         server_default=MeasurementStatus.PENDING.value,
         index=True
     )
 
-
+    # Relationships
+    user = relationship("User", back_populates="measurements")
+    product = relationship("Product", back_populates="measurements")
+    packing_items = relationship(
+        "PackingItem", back_populates="measurement", lazy="select"
+    )

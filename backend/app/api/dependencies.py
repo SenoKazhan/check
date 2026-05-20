@@ -1,64 +1,59 @@
-import asyncio
-import logging
+# backend/app/api/dependencies.py
+from functools import wraps
+from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.auth.manager import AuthManager
-from app.core.redis import redis_client, AUTH_RATE_LIMIT, AUTH_RATE_WINDOW
-from app.db.models.user import User
 from app.db.session import get_db
+from app.db.models.user import User
+from app.db.repositories.user_repository import UserRepository
+from app.services.authentication_service import AuthenticationService
+from app.services.rate_limiting_service import RateLimitingService
+from app.core.config import ApplicationSettings, settings
+from app.domain.permissions import Permission, ROLE_PERMISSIONS
+from app.domain.exceptions import RateLimitExceededException, DomainException
 
-logger = logging.getLogger(__name__)
+def get_authentication_service() -> AuthenticationService:
+    return AuthenticationService(settings)
 
+def get_rate_limiting_service() -> RateLimitingService:
+    return RateLimitingService()
 
-async def check_auth_rate_limit(request: Request) -> None:
-    try:
-        ip = request.client.host
-        key = f"rl:auth:{ip}"
-        current = await asyncio.to_thread(redis_client.get, key)
-        
-        if current and int(current) >= AUTH_RATE_LIMIT:
-            ttl = await asyncio.to_thread(redis_client.ttl, key)
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Превышено количество попыток входа. Повторите через {ttl} сек."
-            )
-        pipe = redis_client.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, AUTH_RATE_WINDOW)
-        await asyncio.to_thread(pipe.execute)
-    except Exception as e:
-        logger.warning(f"Rate limit check failed: {e}")
-
+def get_user_repository(db: Annotated[AsyncSession, Depends(get_db)]) -> UserRepository:
+    return UserRepository(db)
 
 async def get_current_user(
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    auth_service: Annotated[AuthenticationService, Depends(get_authentication_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)]
 ) -> User:
     token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Отсутствует токен")
+        raise HTTPException(status_code=401, detail="Missing token")
 
-    payload = AuthManager.decode_token(token)
-    if not payload or not payload.get("sub"):
-        raise HTTPException(status_code=401, detail="Невалидный токен")
+    try:
+        payload = auth_service.decode_token(token)
+        user_id = int(payload.get("sub"))
+    except (DomainException, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-    user_id = int(payload["sub"])
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    
+    user = await user_repo.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=401, detail="Пользователь не найден")
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
+async def check_auth_rate_limit(
+    request: Request,
+    rate_service: Annotated[RateLimitingService, Depends(get_rate_limiting_service)]
+) -> None:
+    try:
+        await rate_service.check_auth_rate_limit(request.client.host)
+    except RateLimitExceededException as e:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Retry in {e.ttl} sec.")
 
-def require_role(required_role: str):
-    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role != required_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Недостаточно прав"
-            )
+def require_permission(permission: Permission):
+    async def permission_checker(current_user: User = Depends(get_current_user)) -> User:
+        user_permissions = ROLE_PERMISSIONS.get(current_user.role, [])
+        if permission not in user_permissions:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return current_user
-    return role_checker
+    return permission_checker

@@ -1,16 +1,11 @@
-"""Инициализация синхронного Redis-клиента (для rate limiting)."""
-import redis
+# backend/app/core/redis.py
+import redis.asyncio as aioredis
 from app.core.config import settings
 
-# Синхронный клиент — вызовы оборачиваем через asyncio.to_thread()
-redis_client = redis.Redis(
-    host=settings.redis_host,
-    port=settings.redis_port,
-    db=0,
-    decode_responses=True,
-    socket_connect_timeout=2,
-    retry_on_timeout=True,
-)
+async def create_redis_pool() -> aioredis.Redis:
+    return aioredis.from_url(settings.redis_url, decode_responses=True)
+
+redis_client: aioredis.Redis = None # Инициализируется в main.py lifespan
 
 AUTH_RATE_LIMIT = 5
-AUTH_RATE_WINDOW = 900  # 15 минут
+AUTH_RATE_WINDOW_SECONDS = 900

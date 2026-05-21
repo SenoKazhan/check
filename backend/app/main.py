@@ -1,27 +1,68 @@
 # backend/app/main.py
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.redis import create_redis_pool, redis_client
+import redis.asyncio as aioredis
+from sqlalchemy import text
+
+from app.core.redis import create_redis_pool
 from app.domain.exceptions import DomainException, AccessDeniedException, RateLimitExceededException
-from app.api import auth
+from app.api import auth, products, users
 from app.api.v1 import measurement, packing
+from app.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Warehouse CV", version="0.1.0")
+INITIAL_PRODUCTS = [
+    {"name": "Смартфон стандарт", "ref_length_mm": 160, "ref_width_mm": 75, "ref_height_mm": 8},
+    {"name": "Планшет 10 дюймов", "ref_length_mm": 245, "ref_width_mm": 170, "ref_height_mm": 7},
+    {"name": "Ноутбук 15 дюймов", "ref_length_mm": 360, "ref_width_mm": 250, "ref_height_mm": 20},
+    {"name": "Наушники накладные", "ref_length_mm": 200, "ref_width_mm": 180, "ref_height_mm": 80},
+    {"name": "Клавиатура механическая", "ref_length_mm": 440, "ref_width_mm": 140, "ref_height_mm": 35},
+    {"name": "Мышь компьютерная", "ref_length_mm": 120, "ref_width_mm": 70, "ref_height_mm": 40},
+    {"name": "Книга крупная", "ref_length_mm": 250, "ref_width_mm": 200, "ref_height_mm": 30},
+    {"name": "Кружка керамическая", "ref_length_mm": 120, "ref_width_mm": 90, "ref_height_mm": 100},
+    {"name": "Тарелка обеденная", "ref_length_mm": 270, "ref_width_mm": 270, "ref_height_mm": 25},
+    {"name": "Кастрюля 3 литра", "ref_length_mm": 250, "ref_width_mm": 200, "ref_height_mm": 150},
+    {"name": "Обувь кроссовки (пара)", "ref_length_mm": 320, "ref_width_mm": 210, "ref_height_mm": 120},
+    {"name": "Футболка сложенная", "ref_length_mm": 250, "ref_width_mm": 200, "ref_height_mm": 30},
+    {"name": "Куртка сложенная", "ref_length_mm": 400, "ref_width_mm": 300, "ref_height_mm": 80},
+    {"name": "Рюкзак городской", "ref_length_mm": 450, "ref_width_mm": 300, "ref_height_mm": 150},
+    {"name": "Чемодан средний", "ref_length_mm": 650, "ref_width_mm": 450, "ref_height_mm": 250},
+    {"name": "Коробка конфет", "ref_length_mm": 250, "ref_width_mm": 200, "ref_height_mm": 60},
+    {"name": "Бутылка вина", "ref_length_mm": 80, "ref_width_mm": 80, "ref_height_mm": 320},
+    {"name": "Банка кофе", "ref_length_mm": 100, "ref_width_mm": 100, "ref_height_mm": 200},
+    {"name": "Тостер", "ref_length_mm": 300, "ref_width_mm": 180, "ref_height_mm": 200},
+    {"name": "Миксер кухонный", "ref_length_mm": 220, "ref_width_mm": 160, "ref_height_mm": 310},
+]
 
-@app.on_event("startup")
-async def startup_event():
-    global redis_client
-    redis_client = await create_redis_pool()
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    application.state.redis_client = create_redis_pool()
+    
+    async with async_session_factory() as db:
+        result = await db.execute(text("SELECT id FROM products LIMIT 1"))
+        if result.first() is None:
+            logger.info("Таблица товаров пуста. Заполняю начальными данными...")
+            for p_data in INITIAL_PRODUCTS:
+                await db.execute(
+                    text("""
+                        INSERT INTO products (name, ref_length_mm, ref_width_mm, ref_height_mm) 
+                        VALUES (:name, :ref_length_mm, :ref_width_mm, :ref_height_mm)
+                    """),
+                    p_data
+                )
+            await db.commit()
+            logger.info("Успешно добавлено %d товаров.", len(INITIAL_PRODUCTS))
+        
+    yield
+    
+    if application.state.redis_client:
+        await application.state.redis_client.close()
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    global redis_client
-    if redis_client:
-        await redis_client.close()
+app = FastAPI(title="Warehouse CV", version="0.1.0", lifespan=lifespan)
 
 @app.exception_handler(DomainException)
 async def domain_exception_handler(request: Request, exc: DomainException):
@@ -40,9 +81,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, tags=["Authentication"])
+
+app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
+app.include_router(products.router, prefix="/api/v1", tags=["Products"])
 app.include_router(measurement.router, prefix="/api/v1", tags=["Measurements"])
 app.include_router(packing.router, prefix="/api/v1", tags=["Packing"])
+app.include_router(users.router, prefix="/api/v1", tags=["Users"])
 
 @app.get("/health")
 def health_check():

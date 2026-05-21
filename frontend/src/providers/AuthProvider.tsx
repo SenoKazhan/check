@@ -32,19 +32,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const checkAuth = async () => {
       try {
-        const { data } = await api.get<User>('/auth/me');
+        const { data } = await api.get<User>('/api/v1/auth/me');
         if (isMounted) {
           setUser(data);
         }
       } catch {
-        // Любая ошибка = неавторизован
         if (isMounted) {
           setUser(null);
         }
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
@@ -64,12 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Вход в систему
   const login = async (login: string, password: string) => {
     try {
-      await api.post('/auth/login', { login, password });
-      const { data } = await api.get<User>('/auth/me');
+      await api.post('/api/v1/auth/login', { login, password });
+      const { data } = await api.get<User>('/api/v1/auth/me');
       setUser(data);
       router.push('/');
     } catch (error) {
-      // Ошибка уже обработана в api.ts интерцептором
       throw error;
     }
   };
@@ -77,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Выход из системы
   const logout = async () => {
     try {
-      await api.post('/auth/logout');
+      await api.post('/api/v1/auth/logout');
     } finally {
       setUser(null);
       router.push('/login');

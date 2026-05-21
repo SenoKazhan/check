@@ -3,6 +3,8 @@ from functools import wraps
 from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+import redis.asyncio as aioredis
+
 from app.db.session import get_db
 from app.db.models.user import User
 from app.db.repo.user_repository import UserRepository
@@ -15,8 +17,11 @@ from app.domain.exceptions import RateLimitExceededException, DomainException
 def get_authentication_service() -> AuthenticationService:
     return AuthenticationService(settings)
 
-def get_rate_limiting_service() -> RateLimitingService:
-    return RateLimitingService()
+async def get_redis_client(request: Request) -> aioredis.Redis:
+    return request.app.state.redis_client
+
+def get_rate_limiting_service(redis: Annotated[aioredis.Redis, Depends(get_redis_client)]) -> RateLimitingService:
+    return RateLimitingService(redis)
 
 def get_user_repository(db: Annotated[AsyncSession, Depends(get_db)]) -> UserRepository:
     return UserRepository(db)

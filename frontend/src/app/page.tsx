@@ -3,21 +3,17 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/providers/AuthProvider';
-import Navigation from '@/components/Navigation';
 
 export default function HomePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  // Редирект неавторизованных на логин
   useEffect(() => {
-    // Если загрузка завершена И пользователя нет — редирект на логин
     if (!loading && !user) {
       router.replace('/login');
     }
   }, [user, loading, router]);
 
-  // Показываем загрузку, пока проверяем авторизацию
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -26,18 +22,14 @@ export default function HomePage() {
     );
   }
 
-  // Если пользователь не авторизован — ничего не рендерим (редирект сработает в useEffect)
-  // Это важно: return null предотвращает рендер страницы с пустым user.login
   if (!user) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navigation />
-      
+      {/* Navigation уже есть в layout.tsx, не нужно добавлять его снова */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Заголовок */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
             Добро пожаловать, {user.login}!
@@ -47,9 +39,7 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* Карточки действий */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Карточка: Измерение */}
           <div 
             onClick={() => router.push('/measure')}
             className="bg-white p-6 rounded-xl shadow-md border border-gray-200 cursor-pointer hover:shadow-lg transition hover:border-blue-400"
@@ -63,7 +53,6 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Карточка: Товары */}
           <div 
             onClick={() => router.push('/products')}
             className="bg-white p-6 rounded-xl shadow-md border border-gray-200 cursor-pointer hover:shadow-lg transition hover:border-blue-400"
@@ -77,7 +66,6 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Карточка: Настройки (только админ) */}
           {user.role === 'admin' && (
             <div 
               onClick={() => router.push('/settings')}
@@ -94,7 +82,6 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Подсказка */}
         <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
           <h3 className="text-lg font-semibold text-blue-900 mb-2">
             📋 Как работать с системой:

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import { api } from '@/lib/api'; 
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -31,7 +31,7 @@ export default function UsersAdminPanel() {
   // Загрузка списка пользователей – обёрнута в useCallback для стабильности
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await axios.get<{ users: User[] }>(`${API_URL}/api/v1/users/`, { withCredentials: true });
+      const res = await api.get<{ users: User[] }>(`${API_URL}/api/v1/users/`, { withCredentials: true });
       setUsers(res.data.users);
     } catch {
       setError('Не удалось загрузить пользователей');
@@ -75,11 +75,11 @@ export default function UsersAdminPanel() {
       if (password) payload.password = password;
 
       if (editingUser) {
-        await axios.put(`${API_URL}/api/v1/users/${editingUser.id}`, payload, { withCredentials: true });
+        await api.put(`${API_URL}/api/v1/users/${editingUser.id}`, payload, { withCredentials: true });
         setSuccess(`Пользователь «${login}» обновлен`);
       } else {
         if (!password) { setError('Введите пароль'); return; }
-        await axios.post(`${API_URL}/api/v1/users/`, { login, password, role }, { withCredentials: true });
+        await api.post(`${API_URL}/api/v1/users/`, { login, password, role }, { withCredentials: true });
         setSuccess(`Пользователь «${login}» создан`);
       }
       resetForm();
@@ -95,7 +95,7 @@ export default function UsersAdminPanel() {
     if (!window.confirm(`Вы уверены, что хотите удалить пользователя «${userLogin}»?`)) return;
     
     try {
-      await axios.delete(`${API_URL}/api/v1/users/${userId}`, { withCredentials: true });
+      await api.delete(`${API_URL}/api/v1/users/${userId}`, { withCredentials: true });
       setSuccess(`Пользователь «${userLogin}» удален`);
       fetchUsers();
       setTimeout(() => setSuccess(''), 3000);

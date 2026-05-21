@@ -1,37 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/providers/AuthProvider';
-import { api } from '@/lib/api';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/providers/AuthProvider';
+import { useSettings } from '@/hooks/useSettings';
+import type { SettingGroupKey, SettingsGroups } from '@/types/settings';
 
-// Типы для настроек
-interface Setting {
-  key: string;
-  label: string;
-  type: 'boolean' | 'number' | 'string';
-  value: any;
-  display_value: any;
-  unit: string;
-  description: string;
-  min?: number;
-  max?: number;
-  step?: number;
-}
-
-interface SettingsGroups {
-  computer_vision: Setting[];
-  verification: Setting[];
-  uploads: Setting[];
-  packing: Setting[];
-}
-
-interface SettingsResponse {
-  groups: SettingsGroups;
-}
-
-// Группы настроек с иконками и названиями
-const GROUP_CONFIG: Record<keyof SettingsGroups, { title: string; icon: string }> = {
+// Конфигурация групп настроек (только данные, без логики)
+const GROUP_CONFIG: Record<SettingGroupKey, { title: string; icon: string }> = {
   computer_vision: { title: 'Компьютерное зрение', icon: '🔍' },
   verification: { title: 'Верификация', icon: '✅' },
   uploads: { title: 'Загрузка файлов', icon: '📤' },
@@ -41,145 +17,37 @@ const GROUP_CONFIG: Record<keyof SettingsGroups, { title: string; icon: string }
 export default function SettingsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  
-  const [settings, setSettings] = useState<SettingsGroups | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [success, setSuccess] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<keyof SettingsGroups>('computer_vision');
+  const {
+    settings,
+    loading,
+    saving,
+    errors,
+    success,
+    fetchSettings,
+    updateSetting,
+    resetSetting,
+    updateLocalValue,
+  } = useSettings();
 
-  // Защита от не-админов
+  // Защита маршрута: доступ только для администраторов
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
-      router.push('/');
+      router.replace('/');
     }
   }, [user, authLoading, router]);
 
-  // Загрузка настроек
-  const fetchSettings = async () => {
-    try {
-      const { data } = await api.get<SettingsResponse>('/api/v1/settings/');
-      setSettings(data.groups);
-    } catch (err) {
-      setErrors({ fetch: 'Не удалось загрузить настройки' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchSettings(); }, []);
-
-  // Обработчик изменения значения
-  const handleChange = (group: keyof SettingsGroups, key: string, value: any) => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        [group]: prev[group].map(s => 
-          s.key === key ? { ...s, value, display_value: value } : s
-        ),
-      };
-    });
-    setErrors(prev => ({ ...prev, [key]: undefined }));
-  };
-
-  // Сохранение настройки
-  const handleSave = async (key: string, value: any, group: keyof SettingsGroups) => {
-    setSaving(prev => ({ ...prev, [key]: true }));
-    setErrors(prev => ({ ...prev, [key]: undefined }));
-    setSuccess(null);
-
-    try {
-      await api.patch(`/api/v1/settings/${key}`, { value });
-      setSuccess(`Настройка "${key}" сохранена`);
-      // Обновляем локально
-      fetchSettings();
-    } catch (err: any) {
-      const msg = err.response?.data?.detail || 'Ошибка сохранения';
-      setErrors(prev => ({ ...prev, [key]: msg }));
-    } finally {
-      setSaving(prev => ({ ...prev, [key]: false }));
-      setTimeout(() => setSuccess(null), 3000);
-    }
-  };
-
-  // Сброс к дефолту
-  const handleReset = async (key: string) => {
-    if (!confirm('Сбросить настройку к значению по умолчанию?')) return;
-    
-    try {
-      await api.delete(`/api/v1/settings/${key}`);
-      setSuccess(`Настройка "${key}" сброшена`);
-      fetchSettings();
-    } catch {
-      setErrors(prev => ({ ...prev, [key]: 'Ошибка сброса' }));
-    }
-  };
-
-  // Рендер поля ввода в зависимости от типа
-  const renderInput = (setting: Setting, group: keyof SettingsGroups) => {
-    const { key, type, value, unit, min, max, step } = setting;
-    const error = errors[key];
-    const isSaving = saving[key];
-
-    switch (type) {
-      case 'boolean':
-        return (
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={!!value}
-              onChange={e => handleChange(group, key, e.target.checked)}
-              className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              disabled={isSaving}
-            />
-            <span className="text-sm text-gray-600">{value ? 'Включено' : 'Отключено'}</span>
-          </label>
-        );
-
-      case 'number':
-        return (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={value ?? ''}
-              onChange={e => {
-                const num = e.target.value === '' ? null : parseFloat(e.target.value);
-                handleChange(group, key, num);
-              }}
-              min={min}
-              max={max}
-              step={step}
-              className={`w-32 px-3 py-2 border rounded-lg text-right ${
-                error ? 'border-red-300' : 'border-gray-300'
-              } focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-              disabled={isSaving}
-            />
-            {unit && <span className="text-sm text-gray-500">{unit}</span>}
-          </div>
-        );
-
-      case 'string':
-      default:
-        return (
-          <input
-            type="text"
-            value={value ?? ''}
-            onChange={e => handleChange(group, key, e.target.value)}
-            className={`w-full px-3 py-2 border rounded-lg ${
-              error ? 'border-red-300' : 'border-gray-300'
-            } focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-            disabled={isSaving}
-          />
-        );
-    }
-  };
+  // Инициализация: загрузка настроек при монтировании
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   if (authLoading || loading) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        Загрузка настроек...
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+          <p className="text-gray-600">Загрузка настроек...</p>
+        </div>
       </div>
     );
   }
@@ -193,80 +61,252 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">⚙️ Настройки системы</h1>
+    <SettingsContent
+      settings={settings}
+      saving={saving}
+      errors={errors}
+      success={success}
+      onUpdate={updateSetting}
+      onReset={resetSetting}
+      onLocalChange={updateLocalValue}
+    />
+  );
+}
+
+/**
+ * Компонент отображения контента настроек.
+ * Вынесен в отдельную функцию для соблюдения принципа единственной ответственности.
+ */
+function SettingsContent({
+  settings,
+  saving,
+  errors,
+  success,
+  onUpdate,
+  onReset,
+  onLocalChange,
+}: {
+  settings: SettingsGroups;
+  saving: Record<string, boolean>;
+  errors: Record<string, string>;
+  success: string | null;
+  onUpdate: (key: string, value: boolean | number | string, group: SettingGroupKey) => Promise<void>;
+  onReset: (key: string) => Promise<void>;
+  onLocalChange: (group: SettingGroupKey, key: string, value: boolean | number | string) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<SettingGroupKey>('computer_vision');
+
+  return (
+    <div className="mx-auto max-w-5xl p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Настройки системы</h1>
         {success && (
-          <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
+          <span className="rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
             {success}
           </span>
         )}
       </div>
 
-      {/* Табы групп */}
-      <div className="flex gap-2 mb-6 border-b">
-        {(Object.keys(GROUP_CONFIG) as Array<keyof SettingsGroups>).map(group => (
-          <button
-            key={group}
-            onClick={() => setActiveTab(group)}
-            className={`px-4 py-2 rounded-t-lg font-medium transition ${
-              activeTab === group
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {GROUP_CONFIG[group].icon} {GROUP_CONFIG[group].title}
-          </button>
-        ))}
-      </div>
+      {/* Навигация по группам настроек */}
+      <TabNavigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        groups={GROUP_CONFIG}
+      />
 
       {/* Список настроек активной группы */}
       <div className="space-y-4">
-        {settings[activeTab].map(setting => (
-          <div key={setting.key} className="bg-white rounded-xl p-4 shadow border border-gray-100">
-            <div className="flex justify-between items-start gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-gray-900">{setting.label}</h3>
-                  <span className="text-xs text-gray-400 font-mono">{setting.key}</span>
-                </div>
-                <p className="text-sm text-gray-500 mb-3">{setting.description}</p>
-                
-                {/* Поле ввода + кнопки */}
-                <div className="flex items-center gap-3">
-                  {renderInput(setting, activeTab)}
-                  
-                  <button
-                    onClick={() => handleSave(setting.key, setting.value, activeTab)}
-                    disabled={saving[setting.key]}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm"
-                  >
-                    {saving[setting.key] ? 'Сохранение...' : 'Сохранить'}
-                  </button>
-                  
-                  <button
-                    onClick={() => handleReset(setting.key)}
-                    className="px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition text-sm"
-                    title="Сбросить к значению по умолчанию"
-                  >
-                    ↺ Сброс
-                  </button>
-                </div>
-                
-                {errors[setting.key] && (
-                  <p className="mt-2 text-sm text-red-600">{errors[setting.key]}</p>
-                )}
-              </div>
-            </div>
-          </div>
+        {settings[activeTab].map((setting) => (
+          <SettingCard
+            key={setting.key}
+            setting={setting}
+            group={activeTab}
+            isSaving={!!saving[setting.key]}
+            error={errors[setting.key]}
+            onChange={onLocalChange}
+            onSave={onUpdate}
+            onReset={onReset}
+          />
         ))}
       </div>
 
-      {/* Подсказка для пользователя */}
-      <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-        <strong>💡 Подсказка:</strong> Изменения применяются немедленно. 
-        Некоторые параметры (например, лимиты загрузки) требуют перезагрузки страницы для вступления в силу.
+      {/* Информационная подсказка */}
+      <InfoBanner />
+    </div>
+  );
+}
+
+/**
+ * Компонент навигации по вкладкам настроек.
+ */
+function TabNavigation({
+  activeTab,
+  onTabChange,
+  groups,
+}: {
+  activeTab: SettingGroupKey;
+  onTabChange: (tab: SettingGroupKey) => void;
+  groups: Record<SettingGroupKey, { title: string; icon: string }>;
+}) {
+  return (
+    <div className="mb-6 flex gap-2 border-b">
+      {(Object.keys(groups) as SettingGroupKey[]).map((group) => (
+        <button
+          key={group}
+          onClick={() => onTabChange(group)}
+          className={`rounded-t-lg px-4 py-2 text-sm font-medium transition ${
+            activeTab === group
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          {groups[group].icon} {groups[group].title}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Компонент карточки отдельной настройки.
+ */
+function SettingCard({
+  setting,
+  group,
+  isSaving,
+  error,
+  onChange,
+  onSave,
+  onReset,
+}: {
+  setting: import('@/types/settings').Setting;
+  group: SettingGroupKey;
+  isSaving: boolean;
+  error?: string;
+  onChange: (group: SettingGroupKey, key: string, value: boolean | number | string) => void;
+  onSave: (key: string, value: boolean | number | string, group: SettingGroupKey) => Promise<void>;
+  onReset: (key: string) => Promise<void>;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="mb-1 flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900">{setting.label}</h3>
+            <span className="font-mono text-xs text-gray-400">{setting.key}</span>
+          </div>
+          <p className="mb-3 text-sm text-gray-500">{setting.description}</p>
+
+          <div className="flex items-center gap-3">
+            <SettingInput
+              setting={setting}
+              group={group}
+              disabled={isSaving}
+              error={!!error}
+              onChange={onChange}
+            />
+
+            <button
+              onClick={() => onSave(setting.key, setting.value, group)}
+              disabled={isSaving}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? 'Сохранение...' : 'Сохранить'}
+            </button>
+
+            <button
+              onClick={() => onReset(setting.key)}
+              className="rounded-lg px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+              title="Сбросить к значению по умолчанию"
+            >
+              ↺ Сброс
+            </button>
+          </div>
+
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Компонент ввода значения настройки в зависимости от типа.
+ */
+function SettingInput({
+  setting,
+  group,
+  disabled,
+  error,
+  onChange,
+}: {
+  setting: import('@/types/settings').Setting;
+  group: SettingGroupKey;
+  disabled: boolean;
+  error: boolean;
+  onChange: (group: SettingGroupKey, key: string, value: boolean | number | string) => void;
+}) {
+  const { key, type, value, unit, minValue, maxValue, step } = setting;
+
+  if (type === 'boolean') {
+    return (
+      <label className="flex cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          checked={!!value}
+          onChange={(e) => onChange(group, key, e.target.checked)}
+          disabled={disabled}
+          className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <span className="text-sm text-gray-600">{value ? 'Включено' : 'Отключено'}</span>
+      </label>
+    );
+  }
+
+  if (type === 'number') {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          value={value ?? ''}
+          onChange={(e) => {
+            const num = e.target.value === '' ? null : parseFloat(e.target.value);
+            if (num !== null) onChange(group, key, num);
+          }}
+          min={minValue}
+          max={maxValue}
+          step={step}
+          disabled={disabled}
+          className={`w-32 rounded-lg border px-3 py-2 text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500 ${
+            error ? 'border-red-300' : 'border-gray-300'
+          }`}
+        />
+        {unit && <span className="text-sm text-gray-500">{unit}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <input
+      type="text"
+      value={value ?? ''}
+      onChange={(e) => onChange(group, key, e.target.value)}
+      disabled={disabled}
+      className={`w-full rounded-lg border px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 ${
+        error ? 'border-red-300' : 'border-gray-300'
+      }`}
+    />
+  );
+}
+
+/**
+ * Информационный баннер с подсказкой.
+ */
+function InfoBanner() {
+  return (
+    <div className="mt-8 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+      <strong>Подсказка:</strong> Изменения применяются немедленно. Некоторые параметры
+      (например, лимиты загрузки) требуют перезагрузки страницы для вступления в силу.
     </div>
   );
 }

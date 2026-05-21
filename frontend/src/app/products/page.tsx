@@ -1,164 +1,98 @@
-"use client";
+// frontend/src/app/products/page.tsx
+'use client';
 
-import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
-import { useAuth } from "@/providers/AuthProvider";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { useAuth } from '@/providers/AuthProvider';
+import { useRouter } from 'next/navigation';
+import { hasPermission, Permission } from '@/lib/permissions';
 
 interface Product {
   id: number;
   name: string;
+  length_mm: number;
+  width_mm: number;
+  height_mm: number;
   qr_code: string | null;
-  ref_length_mm: number | null;
-  ref_width_mm: number | null;
-  ref_height_mm: number | null;
-  notes: string | null;
-}
-
-interface ProductFormData {
-  name: string;
-  qr_code?: string;
-  ref_length_mm?: number;
-  ref_width_mm?: number;
-  ref_height_mm?: number;
-  notes?: string;
 }
 
 export default function ProductsPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
+  
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "", qr_code: "", ref_length_mm: "", ref_width_mm: "", ref_height_mm: "", notes: ""
-  });
+  const [error, setError] = useState<string | null>(null);
 
-  // Защита: пускаем только авторизованных (и админов, и воркеров)
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
+    if (user && !hasPermission(user.role, Permission.MANAGE_PRODUCTS)) {
+      router.push('/');
     }
-  }, [user, authLoading, router]);
+  }, [user, router]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
   const fetchProducts = async () => {
     try {
-      const { data } = await api.get<Product[]>("/products/");
-      setProducts(data);
+      setLoading(true);
+      const res = await api.get('/api/v1/products/');
+      setProducts(res.data);
+    } catch {
+      setError('Не удалось загрузить товары');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { 
-    if (user) fetchProducts(); 
-  }, [user]);
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500">Загрузка справочника...</div>;
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const payload: ProductFormData = { name: formData.name };
-      if (formData.qr_code) payload.qr_code = formData.qr_code;
-      
-      const dimensionKeys = ["ref_length_mm", "ref_width_mm", "ref_height_mm"] as const;
-      dimensionKeys.forEach(key => {
-        const value = formData[key];
-        if (value) {
-          const numValue = parseFloat(value);
-          if (!isNaN(numValue)) payload[key] = numValue;
-        }
-      });
-      
-      if (formData.notes) payload.notes = formData.notes;
-
-      await api.post<Product>("/products/", payload);
-      setIsFormOpen(false);
-      setFormData({ name: "", qr_code: "", ref_length_mm: "", ref_width_mm: "", ref_height_mm: "", notes: "" });
-      fetchProducts();
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "response" in err) {
-        const error = err as { response?: { data?: { detail?: string } } };
-        alert(error.response?.data?.detail || "Ошибка добавления товара");
-      } else {
-        alert("Ошибка добавления товара");
-      }
-    }
-  };
-
-  if (authLoading || loading) return <p className="p-8 text-center text-gray-500">Загрузка справочника...</p>;
-  if (!user) return null;
+  if (error) {
+    return <div className="p-8 text-center text-red-600">{error}</div>;
+  }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Справочник товаров</h1>
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold text-slate-900 mb-6">Справочник товаров</h1>
         
-        {/* КНОПКА ДОБАВЛЕНИЯ ТОЛЬКО ДЛЯ АДМИНА */}
-        {user.role === "admin" && (
-          <button 
-            onClick={() => setIsFormOpen(true)} 
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            + Добавить товар
-          </button>
-        )}
-      </div>
-
-      {/* ФОРМА ДОБАВЛЕНИЯ ТОЛЬКО ДЛЯ АДМИНА */}
-      {isFormOpen && user.role === "admin" && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-            <h2 className="text-xl font-semibold">Новый товар</h2>
-            <input required placeholder="Название" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-            <input placeholder="QR-код (опционально)" value={formData.qr_code} onChange={e => setFormData({...formData, qr_code: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg" />
-            <div className="grid grid-cols-3 gap-3">
-              <input type="number" step="0.1" placeholder="Длина (мм)" value={formData.ref_length_mm} onChange={e => setFormData({...formData, ref_length_mm: e.target.value})} className="p-2 border rounded-lg" />
-              <input type="number" step="0.1" placeholder="Ширина (мм)" value={formData.ref_width_mm} onChange={e => setFormData({...formData, ref_width_mm: e.target.value})} className="p-2 border rounded-lg" />
-              <input type="number" step="0.1" placeholder="Высота (мм)" value={formData.ref_height_mm} onChange={e => setFormData({...formData, ref_height_mm: e.target.value})} className="p-2 border rounded-lg" />
-            </div>
-            <textarea placeholder="Примечания" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full p-2 border rounded-lg resize-none" rows={2} />
-            <div className="flex justify-end gap-3 mt-4">
-              <button type="button" onClick={() => setIsFormOpen(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Отмена</button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Сохранить</button>
-            </div>
-          </form>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="p-4 text-xs font-semibold text-slate-600 uppercase w-12">ID</th>
+                  <th className="p-4 text-xs font-semibold text-slate-600 uppercase">Наименование</th>
+                  <th className="p-4 text-xs font-semibold text-slate-600 uppercase">Габариты (Д x Ш x В)</th>
+                  <th className="p-4 text-xs font-semibold text-slate-600 uppercase">QR-код</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-slate-400">Справочник пуст</td>
+                  </tr>
+                ) : (
+                  products.map(p => (
+                    <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="p-4 text-sm text-slate-500">{p.id}</td>
+                      <td className="p-4 text-sm font-medium text-slate-900">{p.name}</td>
+                      <td className="p-4 text-sm text-slate-700 font-mono">
+                        {p.length_mm || 0} x {p.width_mm || 0} x {p.height_mm || 0} мм
+                      </td>
+                      <td className="p-4 text-sm text-slate-500">
+                        {p.qr_code || '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
-
-      <div className="overflow-x-auto bg-white rounded-xl shadow border border-gray-200">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4 font-medium text-gray-700">ID</th>
-              <th className="p-4 font-medium text-gray-700">Название</th>
-              <th className="p-4 font-medium text-gray-700">QR</th>
-              <th className="p-4 font-medium text-gray-700">Эталон (мм)</th>
-              <th className="p-4 font-medium text-gray-700">Примечания</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map(p => (
-              <tr key={p.id} className="border-b hover:bg-gray-50 transition-colors">
-                <td className="p-4 text-gray-500">{p.id}</td>
-                <td className="p-4 font-medium text-gray-900">{p.name}</td>
-                <td className="p-4 font-mono text-sm text-gray-600">{p.qr_code || "—"}</td>
-                <td className="p-4 text-gray-700">
-                  {[p.ref_length_mm, p.ref_width_mm, p.ref_height_mm]
-                    .filter((val): val is number => val !== null)
-                    .join(" × ") || "—"}
-                </td>
-                <td className="p-4 text-gray-600 truncate max-w-xs">{p.notes || "—"}</td>
-              </tr>
-            ))}
-            {products.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-6 text-center text-gray-500">
-                  Справочник пуст. {user.role === "admin" ? "Добавьте первый товар." : "Ожидание добавления товаров администратором."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </div>
     </div>
   );

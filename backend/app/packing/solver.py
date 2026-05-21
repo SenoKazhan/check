@@ -1,96 +1,18 @@
-"""
-3D Bin Packing Solver на основе CP-SAT (Google OR-Tools).
-Алгоритм: Итеративное уменьшение размеров контейнера (Iterative Deepening) с возможностью подстановки стратегии поиска размеров.
-"""
-
+# backend/app/packing/solver.py
 import math
-from typing import List, Tuple, Optional
-from abc import ABC, abstractmethod
+from typing import List, Optional
 from ortools.sat.python import cp_model
 
 # Масштаб для перевода мм -> целые числа (точность 0.1 мм)
 SCALE = 10
 
-
-class BoxSizeSearchStrategy(ABC):
-    """Стратегия генерации последовательности размеров коробок для проверки."""
-    @abstractmethod
-    def generate_sizes(self, items: List) -> List[Tuple[float, float, float]]:
-        """
-        Генерирует список возможных размеров коробки (длина, ширина, высота) в мм.
-        Порядок должен быть таким, чтобы первые элементы были заведомо большими (гарантия решения),
-        а последующие - уменьшенными.
-        """
-        pass
-
-
-class IterativeDeepeningStrategy(BoxSizeSearchStrategy):
-    """
-    Стратегия итеративного уменьшения коробки.
-    Начальный размер вычисляется как сумма максимальных габаритов по всем осям (гарантирует вместимость),
-    затем последовательно уменьшается самая длинная сторона на заданный процент.
-    """
-
-    def __init__(self, reduction_step: float = 0.05, min_reduction_mm: float = 10.0):
-        self.reduction_step = reduction_step
-        self.min_reduction_mm = min_reduction_mm
-
-    def generate_sizes(self, items: List) -> List[Tuple[float, float, float]]:
-        # Разворачиваем quantity для вычисления максимальных габаритов
-        expanded = []
-        for item in items:
-            for _ in range(item.quantity):
-                expanded.append(item)
-
-        if not expanded:
-            return []
-
-        max_l = max(p.length_mm for p in expanded)
-        max_w = max(p.width_mm for p in expanded)
-        max_h = max(p.height_mm for p in expanded)
-
-        # Гарантированный начальный размер: сумма трёх максимумов (заведомо больше любого возможного размещения)
-        start_l = max_l + max_w + max_h
-        start_w = max_l + max_w + max_h
-        start_h = max_l + max_w + max_h
-
-        sizes = [(start_l, start_w, start_h)]
-        current_l, current_w, current_h = start_l, start_w, start_h
-
-        # Генерируем уменьшенные размеры до тех пор, пока хотя бы одна сторона положительна
-        for _ in range(100):  # ограничим количество итераций
-            sides = [(current_l, 'l'), (current_w, 'w'), (current_h, 'h')]
-            sides.sort(reverse=True)
-            longest_dim, dim_name = sides[0]
-            reduction = max(self.min_reduction_mm, longest_dim * self.reduction_step)
-            if dim_name == 'l':
-                current_l -= reduction
-            elif dim_name == 'w':
-                current_w -= reduction
-            else:
-                current_h -= reduction
-
-            if current_l <= 0 or current_w <= 0 or current_h <= 0:
-                break
-            sizes.append((current_l, current_w, current_h))
-
-        return sizes
-
-
 class BinPackingSolver:
-    def __init__(self, time_limit_sec=15, n_variants=3, allow_rotation=True,
-                 size_strategy: Optional[BoxSizeSearchStrategy] = None):
+    def __init__(self, time_limit_sec=30, n_variants=3, allow_rotation=True):
         self.time_limit = time_limit_sec
-        self.n_variants = n_variants
+        self.n_variants = min(n_variants, 3)
         self.allow_rotation = allow_rotation
-        self.size_strategy = size_strategy or IterativeDeepeningStrategy()
 
     def solve(self, items):
-        """
-        Главный метод. Находит n_variants вариантов упаковки минимального объема.
-        items: список объектов с полями length_mm, width_mm, height_mm, quantity, product_id.
-        """
-        # Разворачиваем quantity
         expanded = []
         for item in items:
             for _ in range(item.quantity):
@@ -99,98 +21,116 @@ class BinPackingSolver:
         if not expanded:
             return []
 
+        ub_x = sum(max(it.length_mm, it.width_mm) for it in expanded) if self.allow_rotation else sum(it.length_mm for it in expanded)
+        ub_y = sum(max(it.length_mm, it.width_mm) for it in expanded) if self.allow_rotation else sum(it.width_mm for it in expanded)
+        ub_z = sum(it.height_mm for it in expanded)
+        
+        min_x = max(it.length_mm for it in expanded)
+        min_y = max(it.width_mm for it in expanded)
+        min_z = max(it.height_mm for it in expanded)
+
+        ub_x, ub_y, ub_z = max(ub_x, min_x), max(ub_y, min_y), max(ub_z, min_z)
+
+        # Вычисляем верхние границы в масштабе решателя
+        target_l = int(math.ceil(ub_x * SCALE))
+        target_w = int(math.ceil(ub_y * SCALE))
+        target_h = int(math.ceil(ub_z * SCALE))
+
+        # Стратегии оптимизации
+        objectives = [
+            # Вариант 1: Компактный (Минимизация объема коробки)
+            # Линейная аппроксимация минимума X*Y*Z
+            lambda x, y, z: x * target_w * target_h + y * target_l * target_h + z * target_l * target_w,
+            
+            # Вариант 2: Плоский (Минимизация высоты Z)
+            lambda x, y, z: z * target_l * target_w + y * target_l + x,
+            
+            # Вариант 3: Высокий (Минимизация площади основания X*Y)
+            lambda x, y, z: x * target_w + y * target_l + z
+        ]
+
         results = []
-        # Получаем последовательность размеров коробок от стратегии
-        candidate_sizes = self.size_strategy.generate_sizes(items)
+        seen_volumes = set()
+        time_per_variant = self.time_limit / max(1, self.n_variants)
 
-        for box_l, box_w, box_h in candidate_sizes:
-            # Распределяем время: на каждый кандидат даём равную долю от общего лимита
-            time_per_check = self.time_limit / max(1, len(candidate_sizes))
-            solution = self._try_pack_fixed_box(expanded, box_l, box_w, box_h, time_per_check)
+        for i in range(self.n_variants):
+            solution = self._solve_model(expanded, ub_x, ub_y, ub_z, min_x, min_y, min_z, objectives[i], time_per_variant)
             if solution:
-                results.append(solution)
-                if len(results) >= self.n_variants:
-                    break
+                vol_key = int(solution["volume"] * 100)
+                if vol_key not in seen_volumes:
+                    results.append(solution)
+                    seen_volumes.add(vol_key)
 
-        # Сортируем по объёму
         results.sort(key=lambda x: x['volume'])
         return results
 
-    def _try_pack_fixed_box(self, expanded, box_l, box_w, box_h, time_limit):
-        """
-        Пытается упаковать товары в строго заданную коробку box_l x box_w x box_h.
-        Возвращает словарь решения или None.
-        """
+    def _solve_model(self, expanded, ub_x, ub_y, ub_z, min_x, min_y, min_z, objective_func, time_limit):
         n = len(expanded)
         model = cp_model.CpModel()
 
-        # Переводим в инты (масштабирование)
-        target_l = int(math.ceil(box_l * SCALE))
-        target_w = int(math.ceil(box_w * SCALE))
-        target_h = int(math.ceil(box_h * SCALE))
-        max_dim = max(target_l, target_w, target_h) + 1000
+        target_l = int(math.ceil(ub_x * SCALE))
+        target_w = int(math.ceil(ub_y * SCALE))
+        target_h = int(math.ceil(ub_z * SCALE))
 
-        # Переменные координат
-        x = [model.NewIntVar(0, max_dim, f"x{i}") for i in range(n)]
-        y = [model.NewIntVar(0, max_dim, f"y{i}") for i in range(n)]
-        z = [model.NewIntVar(0, max_dim, f"z{i}") for i in range(n)]
+        x = [model.NewIntVar(0, target_l, f"x{i}") for i in range(n)]
+        y = [model.NewIntVar(0, target_w, f"y{i}") for i in range(n)]
+        z = [model.NewIntVar(0, target_h, f"z{i}") for i in range(n)]
 
-        # Переменные поворота (Bool)
-        if self.allow_rotation:
-            rot = [model.NewBoolVar(f"rot{i}") for i in range(n)]
-        else:
-            rot = [model.NewConstant(0) for _ in range(n)]
+        rot = [model.NewBoolVar(f"rot{i}") for i in range(n)] if self.allow_rotation else [model.NewConstant(0) for _ in range(n)]
 
-        dims = []  # Храним эффективные размеры для каждого предмета
-
-        # Ограничения для каждого предмета
+        dims = []
         for i, item in enumerate(expanded):
             l = int(math.ceil(item.length_mm * SCALE))
             w = int(math.ceil(item.width_mm * SCALE))
             h = int(math.ceil(item.height_mm * SCALE))
 
-            # Эффективные размеры (могут меняться при повороте)
             l_eff = model.NewIntVar(min(l, w), max(l, w), f"l_eff{i}")
             w_eff = model.NewIntVar(min(l, w), max(l, w), f"w_eff{i}")
-            h_eff = model.NewConstant(h)  # Высоту не меняем
+            h_eff = model.NewConstant(h)
 
             if self.allow_rotation:
-                # Если rot[i] == 0 (False): l_eff = l, w_eff = w
                 model.Add(l_eff == l).OnlyEnforceIf(rot[i].Not())
                 model.Add(w_eff == w).OnlyEnforceIf(rot[i].Not())
-                # Если rot[i] == 1 (True): l_eff = w, w_eff = l (поворот на 90 град)
                 model.Add(l_eff == w).OnlyEnforceIf(rot[i])
                 model.Add(w_eff == l).OnlyEnforceIf(rot[i])
             else:
                 model.Add(l_eff == l)
                 model.Add(w_eff == w)
 
-            # Границы контейнера
-            model.Add(x[i] + l_eff <= target_l)
-            model.Add(y[i] + w_eff <= target_w)
-            model.Add(z[i] + h_eff <= target_h)
-
             dims.append((l_eff, w_eff, h_eff))
 
-        # Ограничения НЕПЕРЕСЕЧЕНИЯ (для каждой пары)
+        max_used_x = model.NewIntVar(int(min_x * SCALE), target_l, "max_used_x")
+        max_used_y = model.NewIntVar(int(min_y * SCALE), target_w, "max_used_y")
+        max_used_z = model.NewIntVar(int(min_z * SCALE), target_h, "max_used_z")
+        
+        for i in range(n):
+            model.Add(x[i] + dims[i][0] <= max_used_x)
+            model.Add(y[i] + dims[i][1] <= max_used_y)
+            model.Add(z[i] + dims[i][2] <= max_used_z)
+
+        # Ограничения непересечения
         for i in range(n):
             for j in range(i + 1, n):
-                l_i, w_i, h_i = dims[i]
-                l_j, w_j, h_j = dims[j]
-
-                # 6 условий непересечения (хотя бы одно должно быть истинным)
                 b = [model.NewBoolVar(f"b_{i}_{j}_{k}") for k in range(6)]
-
-                model.Add(x[i] + l_i <= x[j]).OnlyEnforceIf(b[0])  # i слева от j
-                model.Add(x[j] + l_j <= x[i]).OnlyEnforceIf(b[1])  # j слева от i
-                model.Add(y[i] + w_i <= y[j]).OnlyEnforceIf(b[2])  # i сзади j
-                model.Add(y[j] + w_j <= y[i]).OnlyEnforceIf(b[3])  # j сзади i
-                model.Add(z[i] + h_i <= z[j]).OnlyEnforceIf(b[4])  # i ниже j
-                model.Add(z[j] + h_j <= z[i]).OnlyEnforceIf(b[5])  # j ниже i
-
+                model.Add(x[i] + dims[i][0] <= x[j]).OnlyEnforceIf(b[0])
+                model.Add(x[j] + dims[j][0] <= x[i]).OnlyEnforceIf(b[1])
+                model.Add(y[i] + dims[i][1] <= y[j]).OnlyEnforceIf(b[2])
+                model.Add(y[j] + dims[j][1] <= y[i]).OnlyEnforceIf(b[3])
+                model.Add(z[i] + dims[i][2] <= z[j]).OnlyEnforceIf(b[4])
+                model.Add(z[j] + dims[j][2] <= z[i]).OnlyEnforceIf(b[5])
                 model.AddBoolOr(b)
 
-        # Запуск решателя
+        # ГРАВИТАЦИЯ: сумма высот пола предметов
+        # Вес снижен, чтобы гравитация работала как tie-breaker, а не ломала компактность
+        z_sum = sum(z[i] for i in range(n))
+        z_weight = SCALE 
+
+        # ЦЕЛЕВАЯ ФУНКЦИЯ: Плотность коробки + Гравитация
+        model.Minimize(
+            objective_func(max_used_x, max_used_y, max_used_z) + 
+            z_sum * z_weight 
+        )
+
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = time_limit
 
@@ -198,6 +138,10 @@ class BinPackingSolver:
 
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             placements = []
+            real_l = solver.Value(max_used_x) / SCALE
+            real_w = solver.Value(max_used_y) / SCALE
+            real_h = solver.Value(max_used_z) / SCALE
+
             for i, item in enumerate(expanded):
                 l_val = solver.Value(dims[i][0]) / SCALE
                 w_val = solver.Value(dims[i][1]) / SCALE
@@ -215,10 +159,10 @@ class BinPackingSolver:
                 })
 
             return {
-                "box": (box_l, box_w, box_h),
-                "volume": box_l * box_w * box_h / 1000,  # см^3
+                "box": (real_l, real_w, real_h),
+                "volume": real_l * real_w * real_h / 1000,
                 "placements": placements,
-                "status": "feasible"
+                "status": "optimal" if status == cp_model.OPTIMAL else "feasible"
             }
 
         return None

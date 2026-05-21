@@ -10,6 +10,7 @@ interface UseImageUploadReturn extends UploadState {
   setFile: (view: ViewAngle, file: File | null) => void;
   setRoi: (view: ViewAngle, roi: string | null) => void;
   clearFile: (view: ViewAngle) => void;
+  submit: () => Promise<void>;
   reset: () => void;
   isReady: boolean;
 }
@@ -19,6 +20,9 @@ export function useImageUpload(): UseImageUploadReturn {
     files: { front: null, side: null, top: null },
     manualRoi: { front: null, side: null, top: null },
   });
+
+  // ✅ isReady объявлен ПЕРЕД функциями, которые его используют
+  const isReady = Object.values(state.files).every((file) => file !== null);
 
   // Очистка объектных URL для предотвращения утечек памяти
   useEffect(() => {
@@ -55,6 +59,15 @@ export function useImageUpload(): UseImageUploadReturn {
     });
   }, []);
 
+  // ✅ Теперь isReady доступен в замыкании и в массиве зависимостей
+  const submit = useCallback(async () => {
+    if (!isReady) {
+      throw new Error('Выберите все 3 изображения');
+    }
+    // Здесь будет реальная логика отправки на бэкенд
+    console.log('Submitting:', state.files, state.manualRoi);
+  }, [isReady, state.files, state.manualRoi]);
+
   const reset = useCallback(() => {
     setState({
       files: { front: null, side: null, top: null },
@@ -62,13 +75,12 @@ export function useImageUpload(): UseImageUploadReturn {
     });
   }, []);
 
-  const isReady = Object.values(state.files).every((file) => file !== null);
-
   return {
     ...state,
     setFile,
     setRoi,
     clearFile,
+    submit,
     reset,
     isReady,
   };

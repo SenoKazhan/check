@@ -1,39 +1,44 @@
-"""
-Модуль QR-обработчика.
-Декодирует QR-коды с изображений и выполняет поиск товаров в справочнике.
-"""
+# backend/app/cv/qr_scanner.py
 import asyncio
 import logging
 from typing import Any, Dict, Optional
-
 import numpy as np
 from pyzbar.pyzbar import ZBarSymbol, decode
 
 logger = logging.getLogger(__name__)
 
-
 class QRScanner:
-    """Интеллектуальный сканер QR-кодов для складской системы."""
+    """Интеллектуальный сканер кодов для складской системы."""
 
     async def decode_image(self, image_bgr: np.ndarray) -> Optional[str]:
         """
-        Декодирует QR-код из изображения BGR (выполняется в пуле потоков).
-        Возвращает строку содержимого или None.
+        Декодирует QR-код или штрихкод. 
+        Пробует разные типы последовательно, чтобы избежать крашей от плохих данных.
         """
-        def _decode_sync():
-            try:
-                decoded = decode(image_bgr, symbols=[ZBarSymbol.QRCODE])
-                return decoded[0].data.decode('utf-8') if decoded else None
-            except Exception as e:
-                logger.error(f"Ошибка декодирования QR-кода: {e}")
-                return None
+        
+        # Список типов для попытки декодирования
+        # Используем только те символы, которые гарантированно есть в стандартной сборке libzbar
+        symbol_groups = [
+            [ZBarSymbol.QRCODE],
+            [ZBarSymbol.EAN13, ZBarSymbol.EAN8, ZBarSymbol.UPCA, ZBarSymbol.UPCE],
+            [ZBarSymbol.CODE128, ZBarSymbol.CODE39, ZBarSymbol.CODE93, ZBarSymbol.I25],
+        ]
 
-        return await asyncio.to_thread(_decode_sync)
+        for symbols in symbol_groups:
+            try:
+                decoded_objects = decode(image_bgr, symbols=symbols)
+                if decoded_objects:
+                    return decoded_objects[0].data.decode('utf-8')
+            except Exception as e:
+                # Логируем только если это критично, но не прерываем цикл
+                logger.debug(f"Не удалось декодировать группу {symbols}: {e}")
+                continue
+                
+        return None
 
     async def lookup_product(self, qr_string: str, db_session) -> Optional[Dict[str, Any]]:
-        """Ищет товар в справочнике по декодированной строке QR."""
+        """Ищет товар в справочнике по декодированной строке."""
         from sqlalchemy import select
-
         from app.db.models.product import Product
 
         try:
@@ -42,8 +47,7 @@ class QRScanner:
             product = result.scalar_one_or_none()
 
             if product:
-                logger.info(
-                    f"Товар найден по QR: {product.name} (ID={product.id})")
+                logger.info(f"Товар найден по коду: {product.name} (ID={product.id})")
                 return {
                     "id": product.id,
                     "name": product.name,
@@ -52,10 +56,10 @@ class QRScanner:
                     "ref_height_mm": product.ref_height_mm,
                     "notes": product.notes
                 }
-            logger.warning(f"Товар с QR '{qr_string}' не найден в справочнике")
+            logger.warning(f"Товар с кодом '{qr_string}' не найден в справочнике")
             return None
         except Exception as e:
-            logger.error(f"Ошибка поиска товара по QR: {e}")
+            logger.error(f"Ошибка поиска товара: {e}")
             return None
 
     async def scan_and_lookup(self, image_bgr: np.ndarray, db_session) -> Dict[str, Any]:
@@ -65,8 +69,9 @@ class QRScanner:
             return {"qr_string": None, "product": None, "has_reference_dims": False}
 
         product = await self.lookup_product(qr_string, db_session)
-        has_ref = bool(product and any(product.get(k)
-                       for k in ("ref_length_mm", "ref_width_mm", "ref_height_mm")))
+        has_ref = bool(product and any(
+            product.get(k) for k in ("ref_length_mm", "ref_width_mm", "ref_height_mm")
+        ))
 
         return {
             "qr_string": qr_string,

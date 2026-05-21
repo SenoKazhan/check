@@ -15,13 +15,13 @@ if not results:
     print("ОШИБКА: Решение не найдено!")
 else:
     for i, res in enumerate(results):
-        l, w, h = res["box"]
+        length, width, height = res["box"]
         vol = res["volume"]
         item_vol = 7 * (100 * 100 * 100) / 1000 # 7000 см3
         efficiency = (item_vol / vol) * 100
         
         print(f"\n--- Вариант {i+1} ---")
-        print(f"Размеры коробки: {l:.0f} x {w:.0f} x {h:.0f} мм")
+        print(f"Размеры коробки: {length:.0f} x {width:.0f} x {height:.0f} мм")
         print(f"Объём коробки: {vol:.0f} см3")
         print(f"Объём товаров: {item_vol:.0f} см3")
         print(f"Эффективность: {efficiency:.1f}%")

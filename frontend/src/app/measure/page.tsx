@@ -18,6 +18,17 @@ export default function MeasurePage() {
   const handleCropComplete = (roi: string) => {
     if (cropping) {
       upload.setRoi(cropping.view, roi);
+      setCropping(null);
+    }
+  };
+
+  const handleSubmit = async () => {
+    try {
+      await upload.submit(); // ← Вызов отправки в API
+      // Опционально: показать уведомление или редирект
+    } catch (error) {
+      console.error('Ошибка измерения:', error);
+      // UploadPanel уже покажет ошибку через upload.error
     }
   };
 
@@ -31,13 +42,9 @@ export default function MeasurePage() {
         <UploadPanel
           uploadState={upload}
           onFileSelect={handleFileSelect}
-          onSubmit={async () => {
-            // Здесь будет вызов сервиса измерения
-            // Реализация зависит от архитектуры проекта
-          }}
+          onSubmit={handleSubmit}  // ← Передаём реальную функцию
         />
 
-        {/* Модальное окно кроппинга */}
         {cropping && (
           <ImageCropper
             view={cropping.view}

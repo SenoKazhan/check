@@ -24,6 +24,7 @@ Dockerfile
 .gitignore
 
 # Project specific
+scripts/
 uploads/
 migrations/versions/*.pyc
 *.db

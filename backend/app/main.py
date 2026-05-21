@@ -1,17 +1,21 @@
 # backend/app/main.py
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import redis.asyncio as aioredis
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.core.redis import create_redis_pool
-from app.domain.exceptions import DomainException, AccessDeniedException, RateLimitExceededException
 from app.api import auth, products, users
-from app.api.v1 import measurement, packing
+from app.api.v1 import measurement, packing, qr
+from app.core.redis import create_redis_pool
 from app.db.session import async_session_factory
+from app.domain.exceptions import (
+    AccessDeniedException,
+    DomainException,
+    RateLimitExceededException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +85,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+app.include_router(qr.router, prefix="/api/v1", tags=["QR Scanner"])
 app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(products.router, prefix="/api/v1", tags=["Products"])
 app.include_router(measurement.router, prefix="/api/v1", tags=["Measurements"])

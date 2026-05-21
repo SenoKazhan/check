@@ -1,21 +1,22 @@
 # backend/app/api/v1/packing.py
 import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user, require_permission
-from app.db.models.user import User
-from app.db.models.session import PackingSession, PackingItem, PackingResult
+from app.api.dependencies import require_permission
+from app.core.config import settings
 from app.db.models.measurement import Measurement
 from app.db.models.product import Product
+from app.db.models.session import PackingItem, PackingResult, PackingSession
+from app.db.models.user import User
 from app.db.session import get_db
+from app.domain.exceptions import AccessDeniedException
+from app.domain.permissions import Permission
 from app.packing.solver import BinPackingSolver
 from app.schemas.packing import Item as PackingItemSchema
-from app.core.config import settings
-from app.domain.permissions import Permission
-from app.domain.exceptions import AccessDeniedException
 
 router = APIRouter(prefix="/packing", tags=["Packing"])
 

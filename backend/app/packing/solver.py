@@ -1,10 +1,11 @@
 # backend/app/packing/solver.py
 import math
-from typing import List, Optional
+
 from ortools.sat.python import cp_model
 
 # Масштаб для перевода мм -> целые числа (точность 0.1 мм)
 SCALE = 10
+
 
 class BinPackingSolver:
     def __init__(self, time_limit_sec=30, n_variants=3, allow_rotation=True):
@@ -21,10 +22,12 @@ class BinPackingSolver:
         if not expanded:
             return []
 
-        ub_x = sum(max(it.length_mm, it.width_mm) for it in expanded) if self.allow_rotation else sum(it.length_mm for it in expanded)
-        ub_y = sum(max(it.length_mm, it.width_mm) for it in expanded) if self.allow_rotation else sum(it.width_mm for it in expanded)
+        ub_x = sum(max(it.length_mm, it.width_mm) for it in expanded) if self.allow_rotation else sum(
+            it.length_mm for it in expanded)
+        ub_y = sum(max(it.length_mm, it.width_mm)
+                   for it in expanded) if self.allow_rotation else sum(it.width_mm for it in expanded)
         ub_z = sum(it.height_mm for it in expanded)
-        
+
         min_x = max(it.length_mm for it in expanded)
         min_y = max(it.width_mm for it in expanded)
         min_z = max(it.height_mm for it in expanded)
@@ -40,11 +43,12 @@ class BinPackingSolver:
         objectives = [
             # Вариант 1: Компактный (Минимизация объема коробки)
             # Линейная аппроксимация минимума X*Y*Z
-            lambda x, y, z: x * target_w * target_h + y * target_l * target_h + z * target_l * target_w,
-            
+            lambda x, y, z: x * target_w * target_h + y *
+            target_l * target_h + z * target_l * target_w,
+
             # Вариант 2: Плоский (Минимизация высоты Z)
             lambda x, y, z: z * target_l * target_w + y * target_l + x,
-            
+
             # Вариант 3: Высокий (Минимизация площади основания X*Y)
             lambda x, y, z: x * target_w + y * target_l + z
         ]
@@ -54,7 +58,8 @@ class BinPackingSolver:
         time_per_variant = self.time_limit / max(1, self.n_variants)
 
         for i in range(self.n_variants):
-            solution = self._solve_model(expanded, ub_x, ub_y, ub_z, min_x, min_y, min_z, objectives[i], time_per_variant)
+            solution = self._solve_model(
+                expanded, ub_x, ub_y, ub_z, min_x, min_y, min_z, objectives[i], time_per_variant)
             if solution:
                 vol_key = int(solution["volume"] * 100)
                 if vol_key not in seen_volumes:
@@ -76,33 +81,39 @@ class BinPackingSolver:
         y = [model.NewIntVar(0, target_w, f"y{i}") for i in range(n)]
         z = [model.NewIntVar(0, target_h, f"z{i}") for i in range(n)]
 
-        rot = [model.NewBoolVar(f"rot{i}") for i in range(n)] if self.allow_rotation else [model.NewConstant(0) for _ in range(n)]
+        rot = [model.NewBoolVar(f"rot{i}") for i in range(n)] if self.allow_rotation else [
+            model.NewConstant(0) for _ in range(n)]
 
         dims = []
         for i, item in enumerate(expanded):
-            l = int(math.ceil(item.length_mm * SCALE))
-            w = int(math.ceil(item.width_mm * SCALE))
-            h = int(math.ceil(item.height_mm * SCALE))
+            length = int(math.ceil(item.length_mm * SCALE))
+            width = int(math.ceil(item.width_mm * SCALE))
+            height = int(math.ceil(item.height_mm * SCALE))
 
-            l_eff = model.NewIntVar(min(l, w), max(l, w), f"l_eff{i}")
-            w_eff = model.NewIntVar(min(l, w), max(l, w), f"w_eff{i}")
-            h_eff = model.NewConstant(h)
+            l_eff = model.NewIntVar(
+                min(length, width), max(length, width), f"l_eff{i}")
+            w_eff = model.NewIntVar(
+                min(length, width), max(length, width), f"w_eff{i}")
+            h_eff = model.NewConstant(height)
 
             if self.allow_rotation:
-                model.Add(l_eff == l).OnlyEnforceIf(rot[i].Not())
-                model.Add(w_eff == w).OnlyEnforceIf(rot[i].Not())
-                model.Add(l_eff == w).OnlyEnforceIf(rot[i])
-                model.Add(w_eff == l).OnlyEnforceIf(rot[i])
+                model.Add(l_eff == length).OnlyEnforceIf(rot[i].Not())
+                model.Add(w_eff == width).OnlyEnforceIf(rot[i].Not())
+                model.Add(l_eff == width).OnlyEnforceIf(rot[i])
+                model.Add(w_eff == length).OnlyEnforceIf(rot[i])
             else:
-                model.Add(l_eff == l)
-                model.Add(w_eff == w)
+                model.Add(l_eff == length)
+                model.Add(w_eff == width)
 
             dims.append((l_eff, w_eff, h_eff))
 
-        max_used_x = model.NewIntVar(int(min_x * SCALE), target_l, "max_used_x")
-        max_used_y = model.NewIntVar(int(min_y * SCALE), target_w, "max_used_y")
-        max_used_z = model.NewIntVar(int(min_z * SCALE), target_h, "max_used_z")
-        
+        max_used_x = model.NewIntVar(
+            int(min_x * SCALE), target_l, "max_used_x")
+        max_used_y = model.NewIntVar(
+            int(min_y * SCALE), target_w, "max_used_y")
+        max_used_z = model.NewIntVar(
+            int(min_z * SCALE), target_h, "max_used_z")
+
         for i in range(n):
             model.Add(x[i] + dims[i][0] <= max_used_x)
             model.Add(y[i] + dims[i][1] <= max_used_y)
@@ -123,12 +134,12 @@ class BinPackingSolver:
         # ГРАВИТАЦИЯ: сумма высот пола предметов
         # Вес снижен, чтобы гравитация работала как tie-breaker, а не ломала компактность
         z_sum = sum(z[i] for i in range(n))
-        z_weight = SCALE 
+        z_weight = SCALE
 
         # ЦЕЛЕВАЯ ФУНКЦИЯ: Плотность коробки + Гравитация
         model.Minimize(
-            objective_func(max_used_x, max_used_y, max_used_z) + 
-            z_sum * z_weight 
+            objective_func(max_used_x, max_used_y, max_used_z) +
+            z_sum * z_weight
         )
 
         solver = cp_model.CpSolver()

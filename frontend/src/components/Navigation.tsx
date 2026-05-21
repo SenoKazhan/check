@@ -4,7 +4,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/providers/AuthProvider';
-import { hasPermission, Permission } from '@/lib/permissions';
 import { IconRuler, IconBox, IconCog, IconUsers } from './Icons';
 
 export default function Navigation() {
@@ -13,13 +12,18 @@ export default function Navigation() {
 
   if (!user) return null;
 
-  const navLinks = [
-    { href: '/measure', label: 'Измерение', permission: Permission.EXECUTE_MEASUREMENTS, Icon: IconRuler },
-    { href: '/packing', label: 'Упаковка', permission: Permission.EXECUTE_PACKING, Icon: IconBox },
-    { href: '/products', label: 'Товары', permission: Permission.MANAGE_PRODUCTS, Icon: IconBox },
-    { href: '/users', label: 'Пользователи', permission: Permission.MANAGE_USERS, Icon: IconUsers },
-    { href: '/settings', label: 'Настройки', permission: Permission.MANAGE_SETTINGS, Icon: IconCog },
-  ].filter(link => hasPermission(user.role, link.permission));
+  // Ссылки, доступные всем (включая worker)
+  const commonLinks = [
+    { href: '/measure', label: 'Измерение', Icon: IconRuler },
+    { href: '/packing', label: 'Упаковка', Icon: IconBox },
+    { href: '/products', label: 'Товары', Icon: IconBox },
+  ];
+
+  // Ссылки только для администратора
+  const adminLinks = [
+    { href: '/users', label: 'Пользователи', Icon: IconUsers },
+    { href: '/settings', label: 'Настройки', Icon: IconCog },
+  ];
 
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm">
@@ -30,7 +34,18 @@ export default function Navigation() {
               <IconBox /> Warehouse CV
             </Link>
             <div className="hidden md:flex items-center gap-1">
-              {navLinks.map(({ href, label, Icon }) => (
+              {commonLinks.map(({ href, label, Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    pathname === href ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Icon /> {label}
+                </Link>
+              ))}
+              {user.role === 'admin' && adminLinks.map(({ href, label, Icon }) => (
                 <Link
                   key={href}
                   href={href}

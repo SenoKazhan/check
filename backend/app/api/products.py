@@ -50,13 +50,12 @@ async def create_product(
                 detail=f"Товар с QR-кодом '{payload.qr_code}' уже существует"
             )
     
-    # Маппинг полей из схемы (length_mm) в модель БД (ref_length_mm)
     db_product = Product(
         name=payload.name,
         qr_code=payload.qr_code,
-        ref_length_mm=payload.length_mm,
-        ref_width_mm=payload.width_mm,
-        ref_height_mm=payload.height_mm,
+        ref_length_mm=payload.ref_length_mm, 
+        ref_width_mm=payload.ref_width_mm,    
+        ref_height_mm=payload.ref_height_mm,  
         notes=payload.notes
     )
     db.add(db_product)
@@ -94,9 +93,9 @@ async def update_product(
     
     if payload.name is not None: product.name = payload.name
     if payload.qr_code is not None: product.qr_code = payload.qr_code
-    if payload.length_mm is not None: product.ref_length_mm = payload.length_mm
-    if payload.width_mm is not None: product.ref_width_mm = payload.width_mm
-    if payload.height_mm is not None: product.ref_height_mm = payload.height_mm
+    if payload.ref_length_mm is not None: product.ref_length_mm = payload.ref_length_mm
+    if payload.ref_width_mm is not None: product.ref_width_mm = payload.ref_width_mm
+    if payload.ref_height_mm is not None: product.ref_height_mm = payload.ref_height_mm
     if payload.notes is not None: product.notes = payload.notes
     
     await db.commit()

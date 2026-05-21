@@ -1,18 +1,17 @@
 # backend/app/api/users.py
 
 import logging
-from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, update, delete
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# ✅ ИСПРАВЛЕНО: Импортируем require_permission и Permission
 from app.api.dependencies import get_current_user, require_permission
 from app.auth.manager import AuthManager
 from app.db.models.user import User
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserUpdate, UserResponse, UserListResponse
-from app.domain.permissions import Permission # ✅ Добавлено
+from app.domain.permissions import Permission
+from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 
 logger = logging.getLogger(__name__)
 

@@ -14,6 +14,7 @@ __pycache__/
 # Большие модели и данные
 backend/ir_model/
 backend/uploads/
+backend/scripts/
 cvtest/
 *.bin
 *.h5

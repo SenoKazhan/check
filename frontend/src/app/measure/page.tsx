@@ -1,5 +1,5 @@
+// frontend/src/app/measure/page.tsx
 'use client';
-
 import { useState } from 'react';
 import UploadPanel from '@/components/UploadPanel';
 import ImageCropper from '@/components/ImageCropper';
@@ -23,13 +23,7 @@ export default function MeasurePage() {
   };
 
   const handleSubmit = async () => {
-    try {
-      await upload.submit(); // ← Вызов отправки в API
-      // Опционально: показать уведомление или редирект
-    } catch (error) {
-      console.error('Ошибка измерения:', error);
-      // UploadPanel уже покажет ошибку через upload.error
-    }
+    await upload.submit();
   };
 
   return (
@@ -38,13 +32,14 @@ export default function MeasurePage() {
         <h1 className="mb-8 text-center text-3xl font-bold text-gray-900">
           Измерение габаритов
         </h1>
-
         <UploadPanel
           uploadState={upload}
           onFileSelect={handleFileSelect}
-          onSubmit={handleSubmit}  // ← Передаём реальную функцию
+          onSubmit={handleSubmit}
+          loading={upload.loading}
+          error={upload.error}
+          result={upload.result}
         />
-
         {cropping && (
           <ImageCropper
             view={cropping.view}

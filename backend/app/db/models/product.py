@@ -8,7 +8,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
-# Импортируем Measurement только для проверки типов, чтобы избежать циклического импорта
 if TYPE_CHECKING:
     from app.db.models.measurement import Measurement
 

@@ -33,7 +33,6 @@ services:
   backend:
     build: ./backend
     container_name: diploma-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
       - ./backend/ir_model:/app/ir_model:ro
@@ -41,6 +40,7 @@ services:
     ports:
       - "8001:8000"
     environment:
+      - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -53,16 +53,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: on-failure
 
-  # --- Воркер Celery (для тяжелых задач CV и упаковки) ---
+  # --- Воркер Celery ---
   celery_worker:
     build: ./backend
     container_name: diploma-celery
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=1
     volumes:
       - ./backend:/app
-      - ./backend/ir_model:/app/ir_model:ro  
-      - ./backend/uploads:/app/uploads        
+      - ./backend/ir_model:/app/ir_model:ro
+      - ./backend/uploads:/app/uploads
     environment:
       - DATABASE_URL=postgresql+asyncpg://app_user:dev_password@postgres:5432/warehouse_db
       - REDIS_URL=redis://redis:6379/0

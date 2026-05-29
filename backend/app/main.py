@@ -47,19 +47,23 @@ async def lifespan(application: FastAPI):
     application.state.redis_client = create_redis_pool()
     
     async with async_session_factory() as db:
-        result = await db.execute(text("SELECT id FROM products LIMIT 1"))
-        if result.first() is None:
-            logger.info("Таблица товаров пуста. Заполняю начальными данными...")
-            for p_data in INITIAL_PRODUCTS:
-                await db.execute(
-                    text("""
-                        INSERT INTO products (name, ref_length_mm, ref_width_mm, ref_height_mm) 
-                        VALUES (:name, :ref_length_mm, :ref_width_mm, :ref_height_mm)
-                    """),
-                    p_data
-                )
-            await db.commit()
-            logger.info("Успешно добавлено %d товаров.", len(INITIAL_PRODUCTS))
+        try:
+            result = await db.execute(text("SELECT id FROM products LIMIT 1"))
+            if result.first() is None:
+                logger.info("Таблица товаров пуста. Заполняю начальными данными...")
+                for p_data in INITIAL_PRODUCTS:
+                    await db.execute(
+                        text("""
+                            INSERT INTO products (name, ref_length_mm, ref_width_mm, ref_height_mm) 
+                            VALUES (:name, :ref_length_mm, :ref_width_mm, :ref_height_mm)
+                        """),
+                        p_data
+                    )
+                await db.commit()
+                logger.info("Успешно добавлено %d товаров.", len(INITIAL_PRODUCTS))
+        except Exception as e:
+            logger.warning(f"Seeding пропущен (таблица не готова?): {e}")
+            await db.rollback()
         
     yield
     

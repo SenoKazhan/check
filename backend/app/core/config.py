@@ -97,5 +97,117 @@ class ApplicationSettings(BaseSettings):
             if origin.strip()
         ]
 
+    # === Динамические настройки ===
+    def get_dynamic_settings_keys(self) -> list[str]:
+        """Return list of setting keys that can be overridden dynamically."""
+        return [
+            # Computer Vision
+            "cv_enable_alignment",
+            "cv_alignment_reference_angle", 
+            "cv_alignment_correction_tolerance",
+            # Verification
+            "verify_threshold_pct",
+            "confidence_threshold",
+            # Uploads
+            "max_upload_size_mb",
+            "min_image_width",
+            "min_image_height",
+            # Packing
+            "pack_time_limit_sec",
+            "pack_n_variants",
+            "max_items_per_session",
+        ]
+
+    def get_settings_metadata(self) -> dict[str, dict]:
+        """Return metadata for each dynamic setting."""
+        return {
+            "cv_enable_alignment": {
+                "label": "Включить выравнивание объектов",
+                "type": "boolean",
+                "group": "computer_vision",
+                "description": "Автоматическое выравнивание объектов относительно маркера",
+            },
+            "cv_alignment_reference_angle": {
+                "label": "Опорный угол выравнивания",
+                "type": "number",
+                "group": "computer_vision",
+                "unit": "°",
+                "description": "Целевой угол поворота объекта (0-360)",
+                "step": 1,
+            },
+            "cv_alignment_correction_tolerance": {
+                "label": "Допуск коррекции выравнивания",
+                "type": "number",
+                "group": "computer_vision",
+                "unit": "рад",
+                "description": "Максимальное отклонение для коррекции",
+                "step": 0.01,
+            },
+            "verify_threshold_pct": {
+                "label": "Порог верификации",
+                "type": "number",
+                "group": "verification",
+                "unit": "%",
+                "description": "Максимальное допустимое отклонение от эталона",
+                "step": 0.5,
+            },
+            "confidence_threshold": {
+                "label": "Порог уверенности",
+                "type": "number",
+                "group": "verification",
+                "unit": "",
+                "description": "Минимальная уверенность модели CV (0-1)",
+                "step": 0.05,
+            },
+            "max_upload_size_mb": {
+                "label": "Максимальный размер файла",
+                "type": "number",
+                "group": "uploads",
+                "unit": "МБ",
+                "description": "Лимит на загружаемое изображение",
+                "step": 1,
+            },
+            "min_image_width": {
+                "label": "Минимальная ширина изображения",
+                "type": "number",
+                "group": "uploads",
+                "unit": "px",
+                "description": "Минимально допустимая ширина",
+                "step": 10,
+            },
+            "min_image_height": {
+                "label": "Минимальная высота изображения",
+                "type": "number",
+                "group": "uploads",
+                "unit": "px",
+                "description": "Минимально допустимая высота",
+                "step": 10,
+            },
+            "pack_time_limit_sec": {
+                "label": "Таймаут расчета упаковки",
+                "type": "number",
+                "group": "packing",
+                "unit": "сек",
+                "description": "Максимальное время на поиск решения",
+                "step": 5,
+            },
+            "pack_n_variants": {
+                "label": "Количество вариантов упаковки",
+                "type": "number",
+                "group": "packing",
+                "unit": "",
+                "description": "Число возвращаемых вариантов (1-10)",
+                "step": 1,
+            },
+            "max_items_per_session": {
+                "label": "Максимум товаров в сессии",
+                "type": "number",
+                "group": "packing",
+                "unit": "",
+                "description": "Лимит на число разных товаров",
+                "step": 1,
+            },
+        }
+
 
 settings = ApplicationSettings()

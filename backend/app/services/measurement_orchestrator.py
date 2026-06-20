@@ -1,7 +1,5 @@
-# backend/app/services/measurement_orchestrator.py
-"""Контроллер процесса измерения"""
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from app.services.file_storage_service import FileStorageService
 from app.domain.exceptions import DomainException
 from app.core.celery_app import celery_app
@@ -9,6 +7,7 @@ from app.tasks.cv_pipeline import process_measurement_task
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
 
 class MeasurementOrchestrator:
     def __init__(self, file_storage: FileStorageService, upload_dir: str):
@@ -28,15 +27,6 @@ class MeasurementOrchestrator:
 
         self._upload_dir.mkdir(parents=True, exist_ok=True)
         saved_paths = []
-        roi_tuple: Optional[Tuple[int, int, int, int]] = None
-        
-        if manual_roi:
-            try:
-                coords = [int(x.strip()) for x in manual_roi.split(",")]
-                if len(coords) == 4:
-                    roi_tuple = tuple(coords)
-            except ValueError:
-                logger.warning("Failed to parse manual ROI string")
 
         try:
             for file in files:
@@ -48,18 +38,14 @@ class MeasurementOrchestrator:
                 marker_size_mm=marker_size_mm,
                 user_id=user_id,
                 product_id=product_id,
-                manual_roi=roi_tuple,
+                manual_roi=manual_roi,
             )
 
-            logger.info("Measurement task started: task_id=%s, user_id=%d", task.id, user_id)
+            logger.info("Measurement task dispatched: task_id=%s, user_id=%d", task.id, user_id)
             return {"task_id": task.id, "status": "processing"}
 
-        except DomainException:
+        except Exception as error:
+            logger.error("Measurement workflow failed: %s", error, exc_info=True)
             for path in saved_paths:
                 self._file_storage.remove_file(path)
-            raise
-        except Exception as e:
-            logger.error("Measurement workflow failed: %s", e, exc_info=True)
-            for path in saved_paths:
-                self._file_storage.remove_file(path)
-            raise DomainException("Internal server error during measurement")
+            raise DomainException(f"Internal server error during measurement: {str(error)}")

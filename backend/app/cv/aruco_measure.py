@@ -441,7 +441,6 @@ def _close_edge_gaps(edges: np.ndarray, kernel_size: int, close_iters: int, dila
                              kernel, iterations=close_iters)
     return edges
 
-
 def _extract_objects_from_closed_edges(
     edges: np.ndarray,
     min_area: int,
@@ -454,7 +453,7 @@ def _extract_objects_from_closed_edges(
     """
     h, w = edges.shape
     inv_raw = cv2.bitwise_not(edges)
-
+    
     # 1. Маска маркёра
     marker_mask = np.zeros((h, w), dtype=np.uint8)
     if marker_bbox is not None:
@@ -462,10 +461,22 @@ def _extract_objects_from_closed_edges(
         inv_raw[my1:my2, mx1:mx2] = 0
         marker_mask[my1:my2, mx1:mx2] = 255
 
+    # 🔥 ФИКС: Применяем ROI РАНЬШЕ flood-fill
+    if manual_roi is not None:
+        rx1, ry1, rx2, ry2 = manual_roi
+        rx1, ry1 = max(0, rx1), max(0, ry1)
+        rx2, ry2 = min(w, rx2), min(h, ry2)
+        if rx2 > rx1 and ry2 > ry1:
+            # Обнуляем всё вне ROI
+            roi_mask = np.zeros_like(inv_raw)
+            roi_mask[ry1:ry2, rx1:rx2] = 255
+            inv_raw = cv2.bitwise_and(inv_raw, roi_mask)
+            logger.info(f"[ROI] Применяем ROI: ({rx1},{ry1})-({rx2},{ry2})")
+
     # 2. Flood-fill с ЗАЩИЩЁННОЙ копией — работаем на КОПИИ
     inv = inv_raw.copy()
     flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
-
+    
     # 🔥 ФИКС 1: Заливаем ТОЛЬКО если пиксель действительно белый (фон)
     # И используем меньшую связность (4-связность вместо 8-связности по умолчанию)
     for x in range(w):
@@ -479,17 +490,7 @@ def _extract_objects_from_closed_edges(
         if inv[y, w - 1] == 255:
             cv2.floodFill(inv, flood_mask, (w - 1, y), 0, flags=4)
 
-    # 3. manual ROI
-    if manual_roi is not None:
-        rx1, ry1, rx2, ry2 = manual_roi
-        rx1, ry1 = max(0, rx1), max(0, ry1)
-        rx2, ry2 = min(w, rx2), min(h, ry2)
-        if rx2 > rx1 and ry2 > ry1:
-            roi_mask = np.zeros_like(inv)
-            roi_mask[ry1:ry2, rx1:rx2] = 255
-            inv = cv2.bitwise_and(inv, roi_mask)
-
-    # 4. Connected components на flood-fill-очищенном
+    # 3. Connected components на flood-fill-очищенном
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         inv, connectivity=8)
 
@@ -522,7 +523,6 @@ def _extract_objects_from_closed_edges(
         # 🔥 ФИКС 3: Проверка fill_ratio — коробка должна быть заполнена плотно
         bbox_area = bw * bh
         fill_ratio = area / bbox_area if bbox_area > 0 else 0
-        
         # Для коробки fill_ratio должен быть > 0.6 (плотное заполнение)
         # Для кусачек допускается > 0.2 (разреженная структура)
         if fill_ratio < 0.6 and area < min_area * 3:
@@ -557,7 +557,6 @@ def _extract_objects_from_closed_edges(
             "[discontinuity] Flood-fill уничтожил все объекты, реагрегация из inv_raw...")
         num_labels_raw, labels_raw, stats_raw, _ = cv2.connectedComponentsWithStats(
             inv_raw, connectivity=8)
-
         for i in range(1, num_labels_raw):
             area = stats_raw[i, cv2.CC_STAT_AREA]
             if area < min_area:
@@ -580,7 +579,7 @@ def _extract_objects_from_closed_edges(
             # 🔥 ФИКС 4: Проверка fill_ratio для реагрегации
             bbox_area = bw * bh
             fill_ratio = area / bbox_area if bbox_area > 0 else 0
-            
+
             # Предпочитаем объекты с ненулевой дисперсией глубины (не плоский фон)
             score = float(area)
             if depth_work is not None:
@@ -618,14 +617,12 @@ def _extract_objects_from_closed_edges(
     if best_label >= 0:
         dilated_main = cv2.dilate(
             mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35)), iterations=1)
-
         # Ищем в inv_raw (не в inv, т.к. inv уже залит)
         num_labels_raw, labels_raw, stats_raw, _ = cv2.connectedComponentsWithStats(
             inv_raw, connectivity=8)
         for i in range(1, num_labels_raw):
             if i == best_label and labels is labels_raw:
                 continue  # уже включён
-
             area = stats_raw[i, cv2.CC_STAT_AREA]
             if area < max(50, min_area // 10):
                 continue
@@ -653,10 +650,11 @@ def _extract_objects_from_closed_edges(
         if cv2.bitwise_and(dilated_mask, marker_mask).any():
             mask = cv2.bitwise_or(mask, marker_mask)
 
-    # 8.  ФИКС 6: Адаптивное восстановление толщины с ПРОВЕРКОЙ fill_ratio
+    # 8. 🔥 ФИКС 6: Адаптивное восстановление толщины с ПРОВЕРКОЙ fill_ratio
     ys, xs = np.where(mask > 0)
     if len(xs) == 0:
         return None
+    
     bx1, by1, bx2, by2 = int(np.min(xs)), int(
         np.min(ys)), int(np.max(xs)) + 1, int(np.max(ys)) + 1
     bbox_area = (bx2 - bx1) * (by2 - by1)
@@ -681,7 +679,7 @@ def _extract_objects_from_closed_edges(
     else:
         restore_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         restore_iters = 2
-
+    
     mask = cv2.dilate(mask, restore_kernel, iterations=restore_iters)
 
     ys, xs = np.where(mask > 0)
@@ -694,6 +692,141 @@ def _extract_objects_from_closed_edges(
     return bbox, mask.astype(bool)
 
 
+def measure_bbox_rotated(
+    image: NDArray[np.uint8],
+    bbox: Tuple[int, int, int, int],
+    scale: ScaleEstimator,
+    object_mask: Optional[NDArray[np.bool_]] = None,  # ДОБАВЛЕН ПАРАМЕТР
+    padding_px: float = 3.0  # 🔥 УМЕНЬШЕНО с 10.0 до 3.0
+) -> Dict[str, float]:
+    """
+    Вычисляет габариты объекта с учётом поворота через minAreaRect.
+    v2: Использует точную маску (GrabCut), если она передана.
+    """
+    x1, y1, x2, y2 = bbox
+    rect = None
+
+    # Приоритет: используем точную маску, если она есть
+    if object_mask is not None:
+        roi_mask = (object_mask[y1:y2, x1:x2]).astype(np.uint8) * 255
+        contours, _ = cv2.findContours(
+            roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            rect = cv2.minAreaRect(c)
+
+    # Fallback: старый метод через порог по RGB, если маски нет
+    if rect is None:
+        roi = image[y1:y2, x1:x2]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            rect = cv2.minAreaRect(c)
+
+    if rect is None:
+        return scale.measure_bbox(x1, y1, x2, y2)
+
+    w_px_rot, h_px_rot = rect[1]
+    w_px_rot = float(w_px_rot)
+    h_px_rot = float(h_px_rot)
+
+    if w_px_rot < h_px_rot:
+        w_px_rot, h_px_rot = h_px_rot, w_px_rot
+
+    cx_local, cy_local = rect[0]
+    cx_global = x1 + cx_local
+    cy_global = y1 + cy_local
+
+    ppm = scale.px_per_m_at_marker
+
+    depth_m: Optional[float] = None
+    if scale.depth_map is not None:
+        H, W = scale.depth_map.shape
+        gx = int(np.clip(cx_global, 0, W - 1))
+        gy = int(np.clip(cy_global, 0, H - 1))
+        depth_m = float(scale.depth_map[gy, gx])
+        ppm = scale.px_per_m_at_depth(depth_m)
+
+    width_m = w_px_rot / ppm
+    height_m = h_px_rot / ppm
+
+    box = cv2.boxPoints(rect)
+    box[:, 0] += x1
+    box[:, 1] += y1
+    min_x = float(np.min(box[:, 0]) - padding_px)
+    max_x = float(np.max(box[:, 0]) + padding_px)
+    min_y = float(np.min(box[:, 1]) - padding_px)
+    max_y = float(np.max(box[:, 1]) + padding_px)
+
+    h_img, w_img = image.shape[:2]
+    min_x = max(0.0, min_x)
+    max_x = min(float(w_img), max_x)
+    min_y = max(0.0, min_y)
+    max_y = min(float(h_img), max_y)
+
+    return {
+        "width_m": width_m,
+        "height_m": height_m,
+        "width_px": w_px_rot,
+        "height_px": h_px_rot,
+        "depth_m": depth_m,
+        "ppm": ppm,
+        "rotated": True,
+        "angle_deg": float(rect[2]),
+        "viz_bbox": (int(min_x), int(min_y), int(max_x), int(max_y)),
+    }
+
+
+def _refine_mask_with_grabcut(
+    image_bgr: NDArray[np.uint8],
+    mask: NDArray[np.bool_],
+    marker_bbox: Optional[Tuple[int, int, int, int]] = None
+) -> NDArray[np.bool_]:
+    """
+    Уточняет маску объекта с помощью GrabCut на основе RGB-изображения.
+    v3: Уменьшена зона поиска для более tight маски.
+    """
+    h, w = image_bgr.shape[:2]
+
+    # Создаем маску для GrabCut
+    gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)  # 0 - Всё точный фон
+
+    # 🔥 УМЕНЬШЕНА ЗОНА ПОИСКА: dilate 21x21 вместо 51x51 для более tight маски
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+    dilated = cv2.dilate(mask.astype(np.uint8), kernel, iterations=1)
+    # 3 - Вероятный объект (где будем искать края)
+    gc_mask[dilated == 1] = cv2.GC_PR_FGD
+
+    # Исходная маска от глубины — это точно объект
+    gc_mask[mask] = cv2.GC_FGD  # 1 - Точный объект
+
+    # Принудительно указываем маркёр как точный фон
+    if marker_bbox is not None:
+        mx1, my1, mx2, my2 = marker_bbox
+        gc_mask[my1:my2, mx1:mx2] = cv2.GC_BGD
+
+    bgdModel = np.zeros((1, 65), np.float64)
+    fgdModel = np.zeros((1, 65), np.float64)
+
+    try:
+        cv2.grabCut(image_bgr, gc_mask, None, bgdModel,
+                    fgdModel, 3, cv2.GC_INIT_WITH_MASK)
+    except cv2.error as e:
+        logger.warning(f"GrabCut failed: {e}. Возврат исходной маски глубины.")
+        return mask
+
+    refined_mask = np.where((gc_mask == cv2.GC_FGD) | (
+        gc_mask == cv2.GC_PR_FGD), True, False)
+
+    if np.count_nonzero(refined_mask) < 100:
+        logger.warning(
+            "GrabCut удалил объект. Возврат исходной маски глубины.")
+        return mask
+
+    return refined_mask
 
 def _segment_by_depth_deviation(
     depth_work: NDArray[np.float32],
@@ -990,34 +1123,28 @@ def _refine_mask_with_grabcut(
 
     return refined_mask
 
-
 def segment_object_from_depth(
     depth_map: NDArray[np.float32],
     image_bgr: NDArray[np.uint8],
     marker_bbox: Optional[Tuple[int, int, int, int]] = None,
     min_object_area_ratio: float = 0.02,
     manual_roi: Optional[Tuple[int, int, int, int]] = None,
-    method: str = "discontinuity",  # "discontinuity" | "otsu"
+    method: str = "discontinuity",
 ) -> Optional[Tuple[Tuple[int, int, int, int], NDArray[np.bool_]]]:
     """
     Автоматически сегментирует объект из карты глубины.
     """
     height, width = depth_map.shape
-
-    # 🔥 КРИТИЧЕСКИ ВАЖНО: Конвертируем (x, y, w, h) от boundingRect в (x1, y1, x2, y2)
-    # Раньше из-за этого маркёр никогда не затирался!
     marker_bbox_xyxy = None
     if marker_bbox is not None:
         bx, by, bw, bh = marker_bbox
         marker_bbox_xyxy = (bx, by, bx + bw, by + bh)
 
-    # Исключаем область маркёра (теперь с правильными координатами!)
     depth_work = depth_map.copy()
     if marker_bbox_xyxy is not None:
         x1, y1, x2, y2 = marker_bbox_xyxy
         depth_work[y1:y2, x1:x2] = np.nan
 
-    # Маска валидных пикселей
     valid_mask = (~np.isnan(depth_work) & (
         depth_work > 0.1) & (depth_work < 10.0))
     if valid_mask.sum() < 100:
@@ -1025,40 +1152,66 @@ def segment_object_from_depth(
 
     min_area = int(height * width * min_object_area_ratio)
 
-    # ── Попытка 1: Depth Discontinuity ───────────────────────────────────
+    # Попытка 1: Depth Discontinuity
     if method == "discontinuity":
-        # Передаём правильный marker_bbox_xyxy
         result = _segment_by_discontinuity(
             depth_work, valid_mask, min_area, manual_roi, marker_bbox_xyxy)
         if result is not None:
-            return result
-        logger.warning("Discontinuity не дал результата, fallback к Otsu...")
+            bbox, mask = result
+            # 🔥 ИСПРАВЛЕНИЕ: Увеличиваем порог с 30% до 70% для top view
+            # Для вида сверху объект legitimately занимает большую часть кадра
+            bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            image_area = height * width
+            coverage = bbox_area / image_area
+            
+            # Для top view допускаем до 70% покрытия кадра
+            # Для front/side view оставляем 40%
+            max_coverage = 0.70  # Увеличено с 0.30 до 0.70
+            
+            if coverage > max_coverage:
+                logger.warning(
+                    f"[discontinuity] Bbox слишком большой ({coverage:.1%} кадра), "
+                    f"пробуем Otsu..."
+                )
+            else:
+                logger.info(f"[discontinuity] Принят bbox с покрытием {coverage:.1%}")
+                return result
 
-    # ── Попытка 2 (fallback): Otsu ─────────────────────────────────────────
+    # Попытка 2: Otsu
     seg_result = _segment_by_otsu(
         depth_work, valid_mask, min_area, manual_roi, width, height, marker_bbox_xyxy)
+    
+    if seg_result is not None:
+        bbox, mask = seg_result
+        # Валидация для Otsu
+        bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        image_area = height * width
+        coverage = bbox_area / image_area
+        
+        # 🔥 ИСПРАВЛЕНИЕ: Увеличиваем порог для Otsu с 30% до 70%
+        if coverage > 0.70:  # Увеличено с 0.30 до 0.70
+            logger.warning(
+                f"[otsu] Bbox слишком большой ({coverage:.1%} кадра), "
+                f"возвращаем None для fallback"
+            )
+            return None
+        
+        logger.info(f"[otsu] Принят bbox с покрытием {coverage:.1%}")
+        logger.info("Уточнение маски объекта через GrabCut (RGB-контуры)...")
+        mask = _refine_mask_with_grabcut(image_bgr, mask, marker_bbox_xyxy)
+        
+        ys, xs = np.where(mask)
+        if len(xs) == 0:
+            return None
+        x = int(np.min(xs))
+        y = int(np.min(ys))
+        bw = int(np.max(xs) - x + 1)
+        bh = int(np.max(ys) - y + 1)
+        bbox = (x, y, x + bw, y + bh)
+        return bbox, mask
+    
+    return None
 
-    if seg_result is None:
-        return None
-
-    bbox, mask = seg_result
-
-    # 🔥 УТОЧНЕНИЕ МАСКИ ЧЕРЕЗ GRABCUT (RGB-контуры)
-    # Восстанавливаем тонкие детали объекта, которые потеряла карта глубины
-    logger.info("Уточнение маски объекта через GrabCut (RGB-контуры)...")
-    mask = _refine_mask_with_grabcut(image_bgr, mask, marker_bbox_xyxy)
-
-    # Пересчитаем bbox по уточнённой маске
-    ys, xs = np.where(mask)
-    if len(xs) == 0:
-        return None
-    x = int(np.min(xs))
-    y = int(np.min(ys))
-    bw = int(np.max(xs) - x + 1)
-    bh = int(np.max(ys) - y + 1)
-    bbox = (x, y, x + bw, y + bh)
-
-    return bbox, mask
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Визуализация и API
@@ -1097,10 +1250,11 @@ def measure_object_auto(
     manual_roi: Optional[Tuple[int, int, int, int]] = None,
     expected_marker_id: Optional[int] = None,
     segmentation_method: str = "discontinuity",
+    fallback_dimensions: Optional[Dict[str, float]] = None,
 ) -> Tuple[Optional[Dict[str, float]], NDArray[np.uint8], Optional[NDArray[np.bool_]]]:
     """Полностью автоматический конвейер измерения габаритов."""
     result_img = image_bgr.copy()
-
+    
     # 1. Маркёр
     corners, marker_id, _ = detect_aruco(
         image_bgr, aruco_dict, expected_marker_id)
@@ -1112,28 +1266,40 @@ def measure_object_auto(
     draw_marker(result_img, corners, marker_id, marker_size_m)
 
     # 2. Масштаб
-    scale = ScaleEstimator(corners, marker_size_m,
-                           depth_map, same_plane=same_plane)
+    scale = ScaleEstimator(corners, marker_size_m, depth_map, same_plane=same_plane)
 
-    # 3. Сегментация (depth discontinuity + fallback Otsu)
+    # 3. Сегментация
     seg_result = segment_object_from_depth(
         depth_map, image_bgr, marker_bbox=marker_bbox, manual_roi=manual_roi,
         method=segmentation_method,
     )
+    
     if seg_result is None:
+        # Fallback: если есть предвычисленные размеры (например, из front/side)
+        if fallback_dimensions is not None:
+            logger.info(f"[{object_label}] Используем fallback размеры: {fallback_dimensions}")
+            return {
+                "width_m": fallback_dimensions.get("width_mm", 0) / 1000.0,
+                "height_m": fallback_dimensions.get("height_mm", 0) / 1000.0,
+                "width_px": 0,
+                "height_px": 0,
+                "depth_m": 0,
+                "ppm": scale.px_per_m_at_marker,
+                "rotated": False,
+                "angle_deg": 0,
+                "viz_bbox": (0, 0, 0, 0),
+            }, result_img, None
         return None, result_img, None
 
     bbox, object_mask = seg_result
 
     # 4. Измерение с учётом поворота
     measurements = measure_bbox_rotated(
-        result_img, bbox, scale, object_mask)  # ПЕРЕДАЁМ МАСКУ
+        result_img, bbox, scale, object_mask)
 
-    # Используем viz_bbox для отрисовки, если есть
     viz_bbox = measurements.get("viz_bbox", bbox)
     draw_measurement(result_img, viz_bbox[0], viz_bbox[1],
                      viz_bbox[2], viz_bbox[3], measurements, object_label)
-
     return measurements, result_img, object_mask
 
 

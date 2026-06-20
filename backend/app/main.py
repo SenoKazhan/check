@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api import auth, products, users
-from app.api.v1 import measurement, packing, qr
-from app.core.redis import create_redis_pool
+from app.api.v1 import measurement, packing, qr, tasks
 from app.api.v1 import settings
+from app.core.redis import create_redis_pool
 from app.db.session import async_session_factory
 from app.domain.exceptions import (
     AccessDeniedException,
@@ -97,6 +97,7 @@ app.include_router(measurement.router, prefix="/api/v1", tags=["Measurements"])
 app.include_router(packing.router, prefix="/api/v1", tags=["Packing"])
 app.include_router(users.router, prefix="/api/v1", tags=["Users"])
 app.include_router(settings.router, prefix="/api/v1", tags=["Настройки"])
+app.include_router(tasks.router, prefix="/api/v1", tags=["Tasks"])
 @app.get("/health")
 def health_check():
     return {"status": "ok"}

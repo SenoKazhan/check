@@ -26,13 +26,11 @@ class ApplicationSettings(BaseSettings):
     # === Redis ===
     redis_host: str = "redis"
     redis_port: int = 6379
-
-    # === CV / Depth Anything V2 ===
+# === CV / Depth Anything V2 ===
     cv_model_ir_path: str = "ir_model/ir_metric_hypersim_vitb"
     cv_model_size: str = "vitb"
+    cv_scene_type: str = Field(default="indoor", description="Тип сцены (indoor/outdoor/generic)")
     cv_enable_alignment: bool = True
-    cv_alignment_reference_angle: float = Field(default=0.0, ge=0.0, le=360.0)
-    cv_alignment_correction_tolerance: float = Field(default=0.10, ge=0.0, le=0.50)
 
     # === Верификация ===
     verify_threshold_pct: float = Field(default=10.0, ge=0.0, le=50.0)

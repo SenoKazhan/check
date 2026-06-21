@@ -1,5 +1,5 @@
-# backend/app/api/v1/packing.py
 import json
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -12,12 +12,14 @@ from app.db.models.measurement import Measurement
 from app.db.models.product import Product
 from app.db.models.session import PackingItem, PackingResult, PackingSession
 from app.db.models.user import User
+from app.db.repo.settings_repo import SettingsRepository
 from app.db.session import get_db
 from app.domain.exceptions import AccessDeniedException
 from app.domain.permissions import Permission
 from app.packing.solver import BinPackingSolver
 from app.packing.validator import validate_stability
 from app.schemas.packing import Item as PackingItemSchema
+from app.services.config_service import ConfigService
 
 router = APIRouter(prefix="/packing", tags=["Packing"])
 
@@ -29,12 +31,36 @@ class PackingRequestItem(BaseModel):
 
 class DirectPackingRequest(BaseModel):
     items: list[PackingRequestItem]
-    enable_stability: bool = True  # Включить stability constraints
+    enable_stability: bool = True
 
 
 def verify_session_ownership(session: PackingSession, user: User):
     if session.user_id != user.id:
         raise AccessDeniedException("You do not own this session")
+
+
+def get_settings_repo(db: AsyncSession = Depends(get_db)) -> SettingsRepository:
+    return SettingsRepository(db)
+
+
+def get_config_service(
+    repo: Annotated[SettingsRepository, Depends(get_settings_repo)],
+) -> ConfigService:
+    return ConfigService(repo)
+
+
+async def _build_solver(
+    config_service: ConfigService,
+    enable_stability: bool,
+) -> BinPackingSolver:
+    n_variants = await config_service.get("pack_n_variants")
+    time_limit_sec = await config_service.get("pack_time_limit_sec")
+
+    return BinPackingSolver(
+        time_limit_sec=time_limit_sec or settings.pack_time_limit_sec,
+        n_variants=n_variants or settings.pack_n_variants,
+        enable_stability=enable_stability,
+    )
 
 
 @router.post("/sessions")
@@ -79,9 +105,10 @@ async def add_item(
 @router.post("/sessions/{session_id}/solve")
 async def solve_session(
     session_id: int,
-    enable_stability: bool = Query(default=True, description="Включить stability constraints"),
+    enable_stability: bool = Query(default=True),
     user: User = Depends(require_permission(Permission.EXECUTE_PACKING)),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    config_service: ConfigService = Depends(get_config_service),  
 ):
     session = await db.get(PackingSession, session_id)
     if not session or session.user_id != user.id:
@@ -94,7 +121,7 @@ async def solve_session(
 
     if not items_data:
         raise HTTPException(400, "Сессия пуста")
-
+    
     packing_items = []
     for pi, m in items_data:
         if not m.length_mm or not m.width_mm or not m.height_mm:
@@ -110,11 +137,7 @@ async def solve_session(
             )
         )
 
-    solver = BinPackingSolver(
-        time_limit_sec=settings.pack_time_limit_sec,
-        n_variants=settings.pack_n_variants,
-        enable_stability=enable_stability
-    )
+    solver = await _build_solver(config_service, enable_stability)
     solutions = solver.solve(packing_items)
 
     if not solutions:
@@ -149,7 +172,6 @@ async def solve_session(
     session.status = "done"
     await db.commit()
     return {"status": "success", "variants": len(solutions)}
-
 
 @router.get("/sessions/{session_id}/results")
 async def get_results(
@@ -200,7 +222,8 @@ async def select_result(
 async def solve_direct(
     request_body: DirectPackingRequest,
     user: User = Depends(require_permission(Permission.EXECUTE_PACKING)),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    config_service: ConfigService = Depends(get_config_service),
 ):
     packing_items = []
 
@@ -228,11 +251,7 @@ async def solve_direct(
     if not packing_items:
         raise HTTPException(400, "Список товаров пуст")
 
-    solver = BinPackingSolver(
-        time_limit_sec=settings.pack_time_limit_sec,
-        n_variants=settings.pack_n_variants,
-        enable_stability=request_body.enable_stability
-    )
+    solver = await _build_solver(config_service, request_body.enable_stability)
     solutions = solver.solve(packing_items)
 
     if not solutions:
@@ -253,7 +272,6 @@ async def solve_direct(
             "rotated": p.get("rotation", False)
         } for p in sol["placements"]]
 
-        # Проверяем стабильность
         stability_report = validate_stability(sol["placements"])
 
         formatted_results.append({
